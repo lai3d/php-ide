@@ -1,0 +1,44 @@
+# PHPIDE Roadmap
+
+Status: ✅ done · 🚧 in progress · ⬜ planned
+
+Estimates are Claude Code session time.
+
+Forked from GoIDE (same path RustIDE and CSharpIDE took), so the editor shell (tabs, gutter, folding,
+search/replace, Git, terminal, LSP + DAP clients, multi-window, session restore) already exists.
+The work is porting the language-specific layer to PHP.
+
+Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from npm (global).
+
+## Phase 0 — Fork
+
+| # | Item | Notes | Est. |
+|---|---|---|---|
+| 0.1 | ✅ Fork GoIDE → PHPIDE | Rename targets, bundle ID `io.github.lai3d.phpide`, Composer + PHPUnit example in `Examples/hello` | 0.1h |
+
+## Phase 1 — Port to the PHP toolchain
+
+| # | Item | Notes | Est. |
+|---|---|---|---|
+| 1.1 | ⬜ Language server | Replace gopls with Intelephense (`intelephense --stdio`); `.php` language id; root = nearest `composer.json`; find `php`/`node` in Homebrew + PATH; Phpactor as optional fallback | 0.6h |
+| 1.2 | ⬜ PHP highlighter | Regex lexer: `<?php`/`?>` + inline HTML, heredoc/nowdoc, `$variables`, interpolation, attributes `#[...]`, PHPDoc tags, casts, `match`/`enum`/`readonly` | 0.5h |
+| 1.3 | ⬜ Run / lint | Run current script or a configured entry with `php`; `php -l` on save; PHPStan / Psalm (if in `vendor/bin`) into Problems | 0.5h |
+| 1.4 | ⬜ Tests | PHPUnit (`vendor/bin/phpunit --log-junit`) / Pest: gutter ▶ / ✓ / ✗ per `test*` method and `#[Test]`, run at cursor / file / all | 0.8h |
+| 1.5 | ⬜ Debugger (Xdebug) | Replace Delve with vscode-php-debug as the DAP adapter (download on first use, run with node); `pecl install xdebug` helper; launch script / listen for web requests; breakpoints, stack, variables | 1–1.5h |
+| 1.6 | ⬜ Run configurations | Script + args + env, built-in web server (`php -S localhost:8000 -t public`), Composer scripts from `composer.json` | 0.5h |
+| 1.7 | ⬜ Snippets & settings | PHP snippets (`fn`, `class`, `foreach`, `pubf`, `ctor`, …); php / node / intelephense / licence-key path overrides | 0.4h |
+| 1.8 | ⬜ CI & release | PHP + Intelephense in GitHub Actions, tagged `PHPIDE-vX.Y.Z.zip`, app icon, IDE Toolbox catalog entry | 0.5h |
+
+## Phase 2 — PHP-specific features
+
+| # | Item | Notes | Est. |
+|---|---|---|---|
+| 2.1 | ⬜ Composer panel | Packages from `composer.json`/`composer.lock`; require / update / remove, `composer outdated`, run scripts | 0.6h |
+| 2.2 | ⬜ Formatting | PHP-CS-Fixer / Laravel Pint / phpcbf on save when present in `vendor/bin` | 0.3h |
+| 2.3 | ⬜ Mixed HTML/PHP templates | Highlight HTML/JS/CSS outside `<?php ?>`; Blade / Twig basic highlighting | 0.6h |
+| 2.4 | ⬜ Framework support | Laravel `artisan` / Symfony `bin/console` command runner; route list | 0.6h |
+| 2.5 | ⬜ Coverage | PHPUnit `--coverage-clover` with Xdebug/PCOV → gutter tints and per-file % | 0.5h |
+| 2.6 | ⬜ Database hook | Open `.env` DB settings in DBIDE | 0.2h |
+
+**User must do manually** (duration outside Claude's control): Intelephense premium licence key (optional,
+for rename / code actions), Apple Developer Program enrollment + notarization if a signed build is wanted.
