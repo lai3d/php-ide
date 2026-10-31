@@ -148,7 +148,7 @@ private struct TestOutput: View {
 
     @ViewBuilder
     private func lineView(_ line: String) -> some View {
-        if let ref = GoTestFinder.fileReferences(in: line).first {
+        if let ref = OutputReferences.fileReferences(in: line).first {
             Button { workspace.revealOutputReference(file: ref.file, line: ref.line) } label: {
                 Text(line).underline().foregroundStyle(Color.accentColor)
             }

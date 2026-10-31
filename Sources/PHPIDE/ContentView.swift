@@ -544,7 +544,7 @@ private struct OutputLine: View {
     let text: String
 
     var body: some View {
-        if let reference = GoTestFinder.fileReferences(in: text).first {
+        if let reference = OutputReferences.fileReferences(in: text).first {
             Button { workspace.revealOutputReference(file: reference.file, line: reference.line) } label: {
                 Text(text).underline().foregroundStyle(Color.accentColor)
             }
@@ -592,7 +592,7 @@ struct OutputView: View {
                     if workspace.output.isEmpty {
                         Text("No output yet. Use Build (⌘B), Test (⌘U) or Run (⌘R).").foregroundStyle(.secondary)
                     }
-                    // Line by line, so `file.go:12:3` references from go build/vet/run are clickable.
+                    // Line by line, so `file.php:12` / `… on line 12` references from php, PHPUnit, PHPStan are clickable.
                     ForEach(Array(workspace.output.split(separator: "\n", omittingEmptySubsequences: false).enumerated()),
                             id: \.offset) { _, line in
                         OutputLine(text: String(line))

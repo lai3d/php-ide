@@ -1777,6 +1777,10 @@ final class Workspace {
     /// Opens `file.go:line` from test output (resolved by file name within the project).
     func revealOutputReference(file: String, line: Int) {
         guard let rootURL else { return }
+        let position = TextPosition(line: max(line - 1, 0), character: 0)
+        if file.hasPrefix("/"), FileManager.default.fileExists(atPath: file) {
+            return navigate(to: URL(fileURLWithPath: file), position: position)
+        }
         let suffix = "/" + (file as NSString).lastPathComponent
         let candidates = ProjectSearch.files(under: rootURL).filter { $0.hasSuffix(suffix) }
         let match = candidates.first { $0.hasSuffix("/" + file) } ?? candidates.first
