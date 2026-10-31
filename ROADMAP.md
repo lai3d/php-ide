@@ -45,7 +45,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.8 | ✅ CI toolchain | GitHub Actions: PHP + Xdebug, Composer, Node + Intelephense, a PHPUnit/PHPStan fixture project and the debug adapter, so the end-to-end tests run on every push | 0.4h |
 | 1.8a | ✅ App icon | PHP-themed icon (elephant-violet) from `scripts/make-icon.swift` | 0.1h |
 | 1.8 pre | ✅ Launch fix | `NSTreatUnknownArgumentsAsOpen = NO` so a folder in argv (IDE Toolbox) still opens a window (missing from the GoIDE fork) | 0.05h |
-| 1.8b | ⬜ Release v0.1.0 | Tag-triggered `PHPIDE-vX.Y.Z.zip`, release notes list the requirements (php, node + intelephense; Xdebug optional) | 0.2h |
+| 1.8b | ✅ Release v0.1.0 | Tag-triggered `PHPIDE-vX.Y.Z.zip`, release notes list the requirements (php, node + intelephense; Xdebug optional) | 0.2h |
 | 1.8c | ✅ IDE Toolbox entry | Already in the Toolbox catalog (ide-toolbox 9f75453, added by another session); any `.zip` release asset installs | 0.2h |
 
 ## Phase 2 — PHP-specific features
