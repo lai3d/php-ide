@@ -10,6 +10,10 @@ public enum SyntaxTokenKind: Sendable, Hashable {
     case phpTag
     /// `@param`, `@return`, … inside `/** … */`.
     case docTag
+    /// HTML `<tag` / `</tag>` / `>`.
+    case tag
+    /// HTML attribute names.
+    case attributeName
 }
 
 public struct SyntaxToken: Sendable, Hashable {
@@ -22,9 +26,10 @@ public struct SyntaxToken: Sendable, Hashable {
     }
 }
 
-/// A fast hand-written PHP lexer for syntax highlighting. Text outside `<?php … ?>` is left as
-/// inline HTML (uncolored). Later tokens may overlap earlier ones (variables inside strings,
-/// tags inside doc comments) and are meant to be painted on top.
+/// A fast hand-written PHP lexer for syntax highlighting. Text outside `<?php … ?>` is lexed as
+/// HTML (tags, attributes, comments, and strings / comments inside `<script>` / `<style>`).
+/// Later tokens may overlap earlier ones (variables inside strings, tags inside doc comments)
+/// and are meant to be painted on top.
 public enum PHPHighlighter {
     /// Matched case-insensitively, like PHP itself.
     public static let keywords: Set<String> = [
@@ -60,10 +65,28 @@ public enum PHPHighlighter {
         return lexer.tokens
     }
 
+    static let jsKeywords: Set<String> = [
+        "async", "await", "break", "case", "catch", "class", "const", "continue", "default", "delete", "do",
+        "else", "export", "extends", "false", "finally", "for", "from", "function", "if", "import", "in",
+        "instanceof", "let", "new", "null", "of", "return", "static", "super", "switch", "this", "throw",
+        "true", "try", "typeof", "undefined", "var", "void", "while", "yield",
+    ]
+
+    private enum HTMLState: Equatable {
+        case text, inTag, attributeValue(quote: UInt16), comment, script, style
+    }
+
     private struct Lexer {
         let s: [UInt16]
         var i = 0
         var tokens: [SyntaxToken] = []
+        /// Where HTML scanning is, kept across `<?php … ?>` islands (e.g. inside an attribute value).
+        private var htmlState = HTMLState.text
+        /// Start of a multi-part HTML token (attribute value, comment) that a PHP island interrupted.
+        private var segmentStart = 0
+        /// The element whose tag is open (lowercased) and whether it's a closing tag.
+        private var tagName = ""
+        private var tagClosing = false
         /// The last keyword-ish word seen, for "the identifier after `new` is a class".
         var previousWord = ""
 
@@ -102,8 +125,10 @@ public enum PHPHighlighter {
 
         /// Inline HTML up to the next open tag.
         mutating func html() {
+            segmentStart = i
             while i < s.count {
-                if at(i) == 60, at(i + 1) == 63 {  // <?
+                if at(i) == 60, at(i + 1) == 63 {  // <?  — a PHP island, even mid-attribute
+                    flushSegment(upTo: i)
                     let start = i
                     if starts("<?php", at: i, caseInsensitive: true) { i += 5 }
                     else if at(i + 2) == 61 { i += 3 }  // <?=
@@ -111,9 +136,139 @@ public enum PHPHighlighter {
                     add(start, i, .phpTag)
                     return
                 }
+                switch htmlState {
+                case .text: htmlText()
+                case .inTag: htmlInTag()
+                case .attributeValue(let quote):
+                    if s[i] == quote {
+                        add(segmentStart, i + 1, .string)
+                        i += 1
+                        htmlState = .inTag
+                    } else {
+                        i += 1
+                    }
+                case .comment:
+                    if starts("-->", at: i) {
+                        add(segmentStart, i + 3, .comment)
+                        i += 3
+                        htmlState = .text
+                    } else {
+                        i += 1
+                    }
+                case .script, .style:
+                    if at(i) == 60, at(i + 1) == 47,
+                       starts(htmlState == .script ? "</script" : "</style", at: i, caseInsensitive: true) {
+                        htmlState = .text
+                    } else {
+                        embedded(script: htmlState == .script)
+                    }
+                }
+            }
+            flushSegment(upTo: i)
+        }
+
+        /// Colors the part of an attribute value / comment seen so far (before a PHP island or the end).
+        private mutating func flushSegment(upTo end: Int) {
+            switch htmlState {
+            case .attributeValue: add(segmentStart, end, .string)
+            case .comment: add(segmentStart, end, .comment)
+            default: break
+            }
+        }
+
+        private mutating func htmlText() {
+            if starts("<!--", at: i) {
+                htmlState = .comment
+                segmentStart = i
+                i += 4
+            } else if s[i] == 60, at(i + 1) == 33, Self.isTagStart(at(i + 2)) {  // <!DOCTYPE …>
+                let start = i
+                while i < s.count, s[i] != 62, !(s[i] == 60 && at(i + 1) == 63) { i += 1 }
+                if at(i) == 62 { i += 1 }
+                add(start, i, .tag)
+            } else if s[i] == 60, Self.isTagStart(at(i + 1)) || (at(i + 1) == 47 && Self.isTagStart(at(i + 2))) {
+                let start = i
+                let closing = at(i + 1) == 47
+                i += closing ? 2 : 1
+                let nameStart = i
+                while Self.isTagName(at(i)) { i += 1 }
+                add(start, i, .tag)
+                tagName = String(decoding: s[nameStart..<i], as: UTF16.self).lowercased()
+                tagClosing = closing
+                htmlState = .inTag
+            } else {
                 i += 1
             }
         }
+
+        private mutating func htmlInTag() {
+            let c = s[i]
+            if c == 62 {  // >
+                add(i, i + 1, .tag)
+                i += 1
+                htmlState = tagClosing ? .text : tagName == "script" ? .script : tagName == "style" ? .style : .text
+            } else if c == 47, at(i + 1) == 62 {  // />
+                add(i, i + 2, .tag)
+                i += 2
+                htmlState = .text
+            } else if c == 34 || c == 39 {  // "…" or '…'
+                htmlState = .attributeValue(quote: c)
+                segmentStart = i
+                i += 1
+            } else if Self.isTagStart(c) || c == 64 || c == 58 {  // name, @click, :bind
+                let start = i
+                while Self.isTagName(at(i)) || at(i) == 64 || at(i) == 58 || at(i) == 46 { i += 1 }
+                add(start, i, .attributeName)
+            } else {
+                i += 1
+            }
+        }
+
+        /// One token of JavaScript / CSS inside `<script>` / `<style>`: strings, comments, numbers, JS keywords.
+        private mutating func embedded(script: Bool) {
+            let c = s[i]
+            func stop(_ k: Int) -> Bool { k >= s.count || (s[k] == 60 && (at(k + 1) == 63 || at(k + 1) == 47)) }
+            if c == 47, at(i + 1) == 42 {  // /* */
+                let start = i
+                i += 2
+                while i < s.count, !(s[i] == 42 && at(i + 1) == 47), !(s[i] == 60 && at(i + 1) == 63) { i += 1 }
+                if at(i) == 42 { i += 2 }
+                add(start, min(i, s.count), .comment)
+            } else if script, c == 47, at(i + 1) == 47 {  // //
+                let start = i
+                while i < s.count, s[i] != 10, !stop(i) { i += 1 }
+                add(start, i, .comment)
+            } else if c == 34 || c == 39 || (script && c == 96) {
+                let start = i
+                i += 1
+                while i < s.count, s[i] != c, !(s[i] == 10 && c != 96), !(s[i] == 60 && at(i + 1) == 63) {
+                    i += s[i] == 92 ? 2 : 1
+                }
+                if at(i) == c { i += 1 }
+                add(start, min(i, s.count), .string)
+            } else if !script, c == 35, Self.isHexDigit(at(i + 1)) {  // #333 / #ff8800
+                let start = i
+                i += 1
+                while Self.isHexDigit(at(i)) { i += 1 }
+                add(start, i, .number)
+            } else if Self.isDigit(c), i == 0 || !Self.isIdent(s[i - 1]) {
+                let start = i
+                while Self.isIdent(at(i)) || at(i) == 46 || at(i) == 37 { i += 1 }  // 12px, 1.5em, 50%
+                add(start, i, .number)
+            } else if script, Self.isIdentStart(c), i == 0 || !Self.isIdent(s[i - 1]) {
+                let start = i
+                while Self.isIdent(at(i)) || at(i) == 36 { i += 1 }
+                let word = String(decoding: s[start..<i], as: UTF16.self)
+                if jsKeywords.contains(word) { add(start, i, .keyword) }
+                else if at(i) == 40 { add(start, i, .function) }
+            } else {
+                i += 1
+            }
+        }
+
+        static func isHexDigit(_ c: UInt16) -> Bool { isDigit(c) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70) }
+        static func isTagStart(_ c: UInt16) -> Bool { (c >= 97 && c <= 122) || (c >= 65 && c <= 90) }
+        static func isTagName(_ c: UInt16) -> Bool { isTagStart(c) || isDigit(c) || c == 45 || c == 58 || c == 95 }
 
         mutating func php() {
             while i < s.count {

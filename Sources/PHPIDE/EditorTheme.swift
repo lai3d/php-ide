@@ -56,6 +56,8 @@ enum EditorTheme {
         case .attribute: .systemYellow
         case .phpTag: .systemRed
         case .docTag: .systemMint
+        case .tag: .systemBlue
+        case .attributeName: .systemPurple
         }
     }
 }

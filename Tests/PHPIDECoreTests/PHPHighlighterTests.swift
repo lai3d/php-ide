@@ -16,10 +16,26 @@ import Testing
                                     .string, .number, .comment])
     }
 
-    @Test func inlineHTMLIsLeftAlone() {
+    @Test func inlineHTML() {
         let tokens = kinds("<h1 class=\"x\"><?= $title ?></h1><p>if return</p>")
-        #expect(tokens.map(\.0) == ["<?=", "$title", "?>"])
-        #expect(tokens.map(\.1) == [.phpTag, .variable, .phpTag])
+        #expect(tokens.map(\.0) == ["<h1", "class", "\"x\"", ">", "<?=", "$title", "?>", "</h1", ">", "<p", ">", "</p", ">"])
+        #expect(tokens.filter { $0.1 == .keyword }.isEmpty)  // "if return" is text, not PHP
+    }
+
+    @Test func phpInsideAnAttributeValue() {
+        let tokens = kinds("<a href=\"/u/<?= $id ?>/edit\" @click=\"go()\">x</a>")
+        #expect(tokens.map(\.0) == ["<a", "href", "\"/u/", "<?=", "$id", "?>", "/edit\"", "@click", "\"go()\"", ">", "</a", ">"])
+        #expect(tokens[2].1 == .string && tokens[6].1 == .string && tokens[7].1 == .attributeName)
+    }
+
+    @Test func htmlCommentsScriptAndStyle() {
+        let source = "<!-- note --><script src=\"a.js\">const n = 'x'; // hi\nif (n) go(1);</script><style>.a { width: 12px; } /* c */</style>"
+        let tokens = kinds(source)
+        #expect(tokens.first?.0 == "<!-- note -->" && tokens.first?.1 == .comment)
+        let script = tokens.filter { [.keyword, .string, .comment, .function, .number].contains($0.1) }.map(\.0)
+        #expect(script == ["<!-- note -->", "\"a.js\"", "const", "'x'", "// hi", "if", "go", "1", "12px", "/* c */"])
+        #expect(tokens.contains { $0.0 == "</script" && $0.1 == .tag } && tokens.contains { $0.0 == "</style" && $0.1 == .tag })
+        #expect(kinds("<!DOCTYPE html><style>p { color: #fA3; }</style>").map(\.0) == ["<!DOCTYPE html>", "<style", ">", "#fA3", "</style", ">"])
     }
 
     @Test func lineCommentsEndAtCloseTag() {

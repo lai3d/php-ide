@@ -55,7 +55,9 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 |---|---|---|---|
 | 2.1 | ✅ Composer panel | Packages from `composer.json`/`composer.lock`; require / update / remove, `composer outdated`, run scripts | 0.6h |
 | 2.2 | ✅ Formatting | PHP-CS-Fixer / Laravel Pint / phpcbf on save when present in `vendor/bin` | 0.3h |
-| 2.3 | ⬜ Mixed HTML/PHP templates | Highlight HTML/JS/CSS outside `<?php ?>`; Blade / Twig basic highlighting | 0.6h |
+| 2.3 | ✅ HTML in PHP files | Tags, attributes, values, comments and `<script>` / `<style>` strings + comments outside `<?php ?>` | 0.3h |
+| 2.3a | ⬜ Blade | `*.blade.php`: `{{ }}` / `{!! !!}` with PHP inside, `@directives`, `{{-- --}}` comments, HTML around | 0.3h |
+| 2.3b | ⬜ Twig | `*.twig`: `{{ }}` / `{% %}` / `{# #}`, tags and filters, HTML around (highlighting only; no language server) | 0.3h |
 | 2.4 | ⬜ Framework support | Laravel `artisan` / Symfony `bin/console` command runner; route list | 0.6h |
 | 2.5 | ⬜ Coverage | PHPUnit `--coverage-clover` with Xdebug/PCOV → gutter tints and per-file % | 0.5h |
 | 2.6 | ⬜ Database hook | Open `.env` DB settings in DBIDE | 0.2h |
