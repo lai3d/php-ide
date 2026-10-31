@@ -44,6 +44,16 @@ import Testing
         return Session(client: client, events: events, dir: dir)
     }
 
+    /// The thread of the next `stopped` event, or nil if the program ended (or the adapter went away) first.
+    private func firstStop(_ events: AsyncStream<(String, JSONValue)>) async -> Int? {
+        for await (event, body) in events {
+            if event == "stopped" { return body["threadId"]?.intValue ?? 1 }
+            if event == "terminated" || event == "exited" { return nil }
+            if event == "output", let text = body["output"]?.stringValue { print("adapter:", text, terminator: "") }
+        }
+        return nil
+    }
+
     @Test(.enabled(if: ready), .timeLimit(.minutes(1)))
     func launchesBreaksInspectsStepsAndContinues() async throws {
         let session = try await launch("""
@@ -57,7 +67,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: session.dir) }
 
         var thread: Int?
-        for await (event, body) in session.events where event == "stopped" { thread = body["threadId"]?.intValue; break }
+        thread = await firstStop(session.events)
         let threadID = try #require(thread)
         let frames = StackFrame.parseAll(try await client.request("stackTrace", arguments: ["threadId": .int(threadID)]))
         #expect(frames.first?.line == 3)
@@ -81,7 +91,7 @@ import Testing
         #expect(evaluated["result"]?.stringValue == "30")
 
         _ = try await client.request("next", arguments: ["threadId": .int(threadID)])
-        for await (event, _) in session.events where event == "stopped" { break }
+        _ = try #require(await firstStop(session.events), "ran to the end instead of stopping after the step")
         let afterStep = StackFrame.parseAll(try await client.request("stackTrace", arguments: ["threadId": .int(threadID)]))
         #expect(afterStep.first?.line == 4)
 
@@ -106,7 +116,7 @@ import Testing
             """, breakpoints: [["line": 3, "condition": "$i == 3"]])
         defer { try? FileManager.default.removeItem(at: session.dir) }
         var thread: Int?
-        for await (event, body) in session.events where event == "stopped" { thread = body["threadId"]?.intValue; break }
+        thread = await firstStop(session.events)
         let frames = StackFrame.parseAll(try await session.client.request("stackTrace", arguments: ["threadId": .int(try #require(thread))]))
         let value = try await session.client.request("evaluate", arguments: ["expression": "$i", "frameId": .int(frames[0].id), "context": "hover"])
         #expect(value["result"]?.stringValue == "3")
@@ -132,6 +142,7 @@ import Testing
                                                    xdebug: .installed(path: "/e/xdebug.so"), arguments: ["a b"], environment: ["K": "V"])
         #expect(args["program"]?.stringValue == "/p/main.php" && args["port"]?.intValue == 0)
         #expect(args["runtimeArgs"]?.arrayValue?.first?.stringValue == "-dzend_extension=/e/xdebug.so")
+        #expect(args["runtimeArgs"]?.arrayValue?.last?.stringValue == "-dxdebug.client_port=${port}")
         #expect(args["args"]?[0]?.stringValue == "a b" && args["env"]?["K"]?.stringValue == "V")
         let listen = PHPDebugAdapter.listenArguments(port: 9003)
         #expect(listen["program"] == nil && listen["port"]?.intValue == 9003)

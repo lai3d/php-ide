@@ -74,7 +74,8 @@ public enum PHPDebugAdapter {
             "cwd": .string(cwd),
             "port": 0,
             "runtimeExecutable": .string(php),
-            "runtimeArgs": .array(xdebug.runtimeArguments.map(JSONValue.string)),
+            // The adapter substitutes `${port}` with the port it actually listens on; php must be told.
+            "runtimeArgs": .array((xdebug.runtimeArguments + ["-dxdebug.client_port=${port}"]).map(JSONValue.string)),
             "args": .array(arguments.map(JSONValue.string)),
             "env": .object(environment.mapValues(JSONValue.string)),
             "stopOnEntry": false,
