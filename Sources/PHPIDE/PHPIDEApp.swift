@@ -296,6 +296,8 @@ struct PHPIDECommands: Commands {
                         Button("Routes…") { Task { await workspace.showRoutes() } }
                     }
                 }
+                Button("Database (.env)…") { workspace.showDatabase() }
+                    .disabled(workspace.rootURL == nil)
                 Button("Install Xdebug (pecl install xdebug)") { workspace.installXdebug() }
                     .disabled(workspace.rootURL == nil || workspace.xdebugStatus?.isAvailable == true)
                 Menu("Composer") {

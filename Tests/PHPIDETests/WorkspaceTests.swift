@@ -870,3 +870,20 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceDatabaseTests {
+    @Test func readsTheProjectsDatabaseSettings() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-db-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try "DB_CONNECTION=mysql\nDB_DATABASE=shop\nDB_USERNAME=root\n".write(to: dir.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        workspace.showDatabase()
+        #expect(workspace.isShowingDatabase)
+        #expect(workspace.databaseSettings?.url() == "mysql://root@127.0.0.1:3306/shop")
+        await workspace.shutdown()
+    }
+}

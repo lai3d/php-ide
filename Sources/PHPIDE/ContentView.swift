@@ -71,6 +71,9 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { workspace.isShowingRoutes }, set: { workspace.isShowingRoutes = $0 })) {
             RoutesSheet().environment(workspace)
         }
+        .sheet(isPresented: Binding(get: { workspace.isShowingDatabase }, set: { workspace.isShowingDatabase = $0 })) {
+            DatabaseSheet().environment(workspace)
+        }
     }
 }
 

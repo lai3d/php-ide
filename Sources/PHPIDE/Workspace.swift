@@ -2110,6 +2110,39 @@ final class Workspace {
         }
     }
 
+    // MARK: - Database (.env → DBIDE)
+
+    var isShowingDatabase = false
+    private(set) var databaseSettings: DatabaseSettings?
+    static let dbideBundleID = "io.github.lai3d.dbide"
+
+    func showDatabase() {
+        guard let rootURL else { return }
+        databaseSettings = DatabaseSettings.fromEnvironmentFiles(in: rootURL)
+        isShowingDatabase = true
+    }
+
+    func copyDatabaseURL(includingPassword: Bool) {
+        guard let url = databaseSettings?.url(includingPassword: includingPassword) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+        flashStatus("Copied \(includingPassword ? "connection URL (with password)" : "connection URL")")
+    }
+
+    var isDBIDEInstalled: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.dbideBundleID) != nil
+    }
+
+    /// Launches DBIDE (installed via IDE Toolbox); the connection URL is on the clipboard to paste there.
+    func openDBIDE() {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.dbideBundleID) else {
+            flashStatus("DBIDE isn't installed — get it from IDE Toolbox")
+            return
+        }
+        copyDatabaseURL(includingPassword: true)
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     // MARK: - Framework console (Laravel artisan / Symfony bin/console)
 
     /// Detected when the folder opens (and when composer.json changes).

@@ -205,6 +205,10 @@ enum Snapshot {
                 workspace.isEditingRunConfigurations = true
                 try? await Task.sleep(for: .milliseconds(800))
             }
+            if args.contains("--snapshot-database"), let workspace {
+                workspace.showDatabase()
+                try? await Task.sleep(for: .milliseconds(600))
+            }
             if args.contains("--snapshot-console"), let workspace {
                 await workspace.showConsoleCommands()
                 try? await Task.sleep(for: .milliseconds(600))
