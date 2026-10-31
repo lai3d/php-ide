@@ -184,6 +184,8 @@ final class Workspace {
     private(set) var lspStatus = "Language server: not started"
     /// Which server is running (intelephense / phpactor), for status messages.
     private(set) var lspName = "Language server"
+    /// Overrides the Settings choice of language server (tests).
+    @ObservationIgnored var preferredLanguageServer: LanguageServerCommand.Kind?
     /// Intelephense is (re)indexing the workspace: cross-file results are incomplete until it ends.
     private(set) var isIndexing = false
     /// Bumped each time the language server becomes ready, so editors can (re)request hints etc.
@@ -1492,7 +1494,7 @@ final class Workspace {
     }
 
     private func startLanguageServer(root: URL) async {
-        guard let server = PHPLanguageServer.locate() else {
+        guard let server = PHPLanguageServer.locate(preferred: preferredLanguageServer) else {
             lspStatus = "No PHP language server — \(PHPLanguageServer.installHint)"
             return
         }

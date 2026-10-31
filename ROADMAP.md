@@ -21,7 +21,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | # | Item | Notes | Est. |
 |---|---|---|---|
 | 1.1 | ✅ Language server | Intelephense (`--stdio`, default) or Phpactor (`language-server`) with fallback; Settings picker + licence key; Composer/npm global bins on the search path; `indexingStarted`/`indexingEnded` → status; Workspace tests ported to PHP | 0.6h |
-| 1.1b | ⬜ Premium-feature tests | Intelephense (free) has no rename / code actions / implementation / folding / semantic tokens / inlay hints: re-add PHP versions of those tests against Phpactor (phar) and port the remaining gopls-gated Core tests | 0.5h |
+| 1.1b | 🚧 Premium-feature tests | Intelephense (free) has no rename / code actions / implementation / folding / semantic tokens / inlay hints: re-add PHP versions of those tests against Phpactor (phar) and port the remaining gopls-gated Core tests | 0.5h |
 | 1.2 | ✅ PHP highlighter | Hand-written lexer (`PHPHighlighter`): `<?php`/`?>` + inline HTML, heredoc/nowdoc, `$variables`, interpolation, attributes `#[...]`, PHPDoc tags, casts, `match`/`enum`/`readonly` | 0.5h |
 | 1.3 | ✅ Run script | Run configurations point at a PHP script (root `*.php`, `public/index.php`, `bin/*`, `artisan`); ⌘R runs `php <script> <args>`; toolbar/menu wording de-Go'd ("PHP" menu, "No script") | 0.3h |
 | 1.3a | ✅ Clickable PHP output | `file.php:12`, `file.php(12)` and `… in /x/file.php on line 12` links in Output / Tests | 0.1h |

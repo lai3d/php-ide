@@ -643,3 +643,73 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+/// Features Intelephense keeps behind its licence, exercised through Phpactor (free).
+/// Runs when `phpactor` is on the search path (e.g. ~/.local/bin/phpactor from phpactor.phar).
+@MainActor
+@Suite(.serialized) struct WorkspacePhpactorTests {
+    nonisolated static let available = PHPIDECore.ToolLocator.find("phpactor") != nil
+
+    private func open(_ files: [String: String]) async throws -> (Workspace, URL) {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-phpactor-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("src"), withIntermediateDirectories: true)
+        let dir = base.canonicalFileURL
+        try #"{"autoload": {"psr-4": {"App\\": "src/"}}}"#.write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+        for (path, text) in files { try text.write(to: dir.appendingPathComponent(path), atomically: true, encoding: .utf8) }
+        let workspace = Workspace()
+        workspace.preferredLanguageServer = .phpactor
+        await workspace.openFolder(dir)
+        #expect(workspace.lspStatus.hasPrefix("phpactor"), "\(workspace.lspStatus)")
+        return (workspace, dir)
+    }
+
+    @Test(.enabled(if: available), .timeLimit(.minutes(1)))
+    func renamesAcrossOpenAndClosedFiles() async throws {
+        let (workspace, dir) = try await open([
+            "index.php": "<?php\n\nuse App\\Greeter;\n\n(new Greeter())->greet();\n",
+            "src/Greeter.php": "<?php\n\nnamespace App;\n\nclass Greeter\n{\n    public function greet(): void {}\n}\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let main = try #require(workspace.activeDocument)
+        let offset = (main.text as NSString).range(of: "greet()").location + 1
+        #expect(await workspace.prepareRename(in: main, at: offset) == "greet")
+        let error = await workspace.renameSymbol(in: main, at: offset, to: "salute")
+        #expect(error == nil)
+        #expect(main.text.contains("->salute()") && main.isDirty)  // open: buffer
+        let greeter = try String(contentsOf: dir.appendingPathComponent("src/Greeter.php"), encoding: .utf8)
+        #expect(greeter.contains("function salute()"))  // closed: disk
+        await workspace.shutdown()
+    }
+
+    @Test(.enabled(if: available), .timeLimit(.minutes(1)))
+    func findsImplementations() async throws {
+        let (workspace, dir) = try await open([
+            "index.php": "<?php\n\nuse App\\Shape;\n\nfunction area(Shape $s): float { return $s->area(); }\n",
+            "src/Shape.php": "<?php\n\nnamespace App;\n\ninterface Shape\n{\n    public function area(): float;\n}\n",
+            "src/Square.php": "<?php\n\nnamespace App;\n\nclass Square implements Shape\n{\n    public function area(): float { return 4.0; }\n}\n",
+            "src/Circle.php": "<?php\n\nnamespace App;\n\nclass Circle implements Shape\n{\n    public function area(): float { return 3.14; }\n}\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let main = try #require(workspace.activeDocument)
+        await workspace.jumpToImplementation(from: main, at: (main.text as NSString).range(of: "Shape $s").location + 1)
+        #expect(workspace.referenceTitle == "2 implementations of ‘Shape’", "\(workspace.referenceTitle)")
+        await workspace.shutdown()
+    }
+
+    @Test(.enabled(if: available), .timeLimit(.minutes(1)))
+    func offersCodeActions() async throws {
+        let (workspace, dir) = try await open([
+            "index.php": "<?php\n\n$g = new Greeter();\n",
+            "src/Greeter.php": "<?php\n\nnamespace App;\n\nclass Greeter {}\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let main = try #require(workspace.activeDocument)
+        for _ in 0..<50 where workspace.diagnostics(for: main).isEmpty { try await Task.sleep(for: .milliseconds(100)) }
+        let actions = await workspace.codeActions(in: main, at: (main.text as NSString).range(of: "Greeter").location + 1)
+        let importClass = try #require(actions.first { $0.title.localizedCaseInsensitiveContains("import") }, "\(actions.map(\.title))")
+        await workspace.perform(importClass)
+        for _ in 0..<50 where !main.text.contains("use App\\Greeter;") { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(main.text.contains("use App\\Greeter;"))
+        await workspace.shutdown()
+    }
+}
