@@ -289,6 +289,13 @@ struct PHPIDECommands: Commands {
                 Divider()
                 Button("Listen for Xdebug (port 9003)") { workspace.listenForXdebug() }
                     .disabled(workspace.rootURL == nil || workspace.isDebugging)
+                if let framework = workspace.framework {
+                    Menu(framework.displayName) {
+                        Button("Run \(framework.consoleName) Command…") { Task { await workspace.showConsoleCommands() } }
+                            .keyboardShortcut("a", modifiers: [.control, .option, .command])
+                        Button("Routes…") { Task { await workspace.showRoutes() } }
+                    }
+                }
                 Button("Install Xdebug (pecl install xdebug)") { workspace.installXdebug() }
                     .disabled(workspace.rootURL == nil || workspace.xdebugStatus?.isAvailable == true)
                 Menu("Composer") {

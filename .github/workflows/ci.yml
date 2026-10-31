@@ -39,11 +39,13 @@ jobs:
           echo "PHPIDE_PHP_DEBUG_JS=$RUNNER_TEMP/php-debug/extension/out/phpDebug.js" >> "$GITHUB_ENV"
           echo "PHPIDE_PHP_DEBUG_VSIX=$RUNNER_TEMP/php-debug.vsix" >> "$GITHUB_ENV"
 
-      - name: Fixture project (PHPUnit, PHPStan)
+      - name: Fixture projects (PHPUnit, PHPStan, Pint; Symfony Console)
         run: |
           composer install --no-interaction --no-progress --working-dir Tests/Fixtures/php-project
           echo "PHPIDE_PHPUNIT_PROJECT=$GITHUB_WORKSPACE/Tests/Fixtures/php-project" >> "$GITHUB_ENV"
           echo "PHPIDE_PHPSTAN_PROJECT=$GITHUB_WORKSPACE/Tests/Fixtures/php-project" >> "$GITHUB_ENV"
+          composer install --no-interaction --no-progress --working-dir Tests/Fixtures/console-app
+          echo "PHPIDE_CONSOLE_PROJECT=$GITHUB_WORKSPACE/Tests/Fixtures/console-app" >> "$GITHUB_ENV"
 
       - name: Toolchain
         run: |

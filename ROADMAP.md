@@ -58,7 +58,8 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 2.3 | ✅ HTML in PHP files | Tags, attributes, values, comments and `<script>` / `<style>` strings + comments outside `<?php ?>` | 0.3h |
 | 2.3a | ✅ Blade | `*.blade.php`: `{{ }}` / `{!! !!}` with PHP inside, `@directives`, `{{-- --}}` comments, HTML around | 0.3h |
 | 2.3b | ✅ Twig | `*.twig`: `{{ }}` / `{% %}` / `{# #}`, tags and filters, HTML around (highlighting only; no language server) | 0.3h |
-| 2.4 | ⬜ Framework support | Laravel `artisan` / Symfony `bin/console` command runner; route list | 0.6h |
+| 2.4 | ✅ Console commands | Laravel `artisan` / Symfony `bin/console` detected; searchable command list (`list --format=json`), run with arguments in Output | 0.4h |
+| 2.4a | ✅ Routes | `route:list --json` / `debug:router --format=json` in a table; double-click opens the controller method (PSR-4 lookup) | 0.4h |
 | 2.5 | ⬜ Coverage | PHPUnit `--coverage-clover` with Xdebug/PCOV → gutter tints and per-file % | 0.5h |
 | 2.6 | ⬜ Database hook | Open `.env` DB settings in DBIDE | 0.2h |
 

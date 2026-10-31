@@ -64,6 +64,13 @@ struct ContentView: View {
                                     set: { workspace.isShowingPackages = $0 })) {
             ComposerPackagesSheet().environment(workspace)
         }
+        .sheet(isPresented: Binding(get: { workspace.isShowingConsoleCommands },
+                                    set: { workspace.isShowingConsoleCommands = $0 })) {
+            ConsoleCommandsSheet().environment(workspace)
+        }
+        .sheet(isPresented: Binding(get: { workspace.isShowingRoutes }, set: { workspace.isShowingRoutes = $0 })) {
+            RoutesSheet().environment(workspace)
+        }
     }
 }
 

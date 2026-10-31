@@ -404,6 +404,7 @@ final class Workspace {
         guard let rootURL else { return }
         scripts = PHPScripts.entryPoints(under: rootURL)
         composerScripts = Composer.scripts(in: rootURL)
+        framework = PHPFramework.detect(in: rootURL)
         loadingRunConfigurations = true
         defer { loadingRunConfigurations = false }
         if let saved = SessionStore.runConfigurations(for: rootURL), !saved.configs.isEmpty {
@@ -422,6 +423,7 @@ final class Workspace {
         guard let rootURL else { return }
         scripts = PHPScripts.entryPoints(under: rootURL)
         composerScripts = Composer.scripts(in: rootURL)
+        framework = PHPFramework.detect(in: rootURL)
     }
 
     private func saveRunConfigurations() {
@@ -2082,6 +2084,76 @@ final class Workspace {
             isRunning = false
             appendOutput("Failed to start \(tool): \(error.localizedDescription)\n")
         }
+    }
+
+    // MARK: - Framework console (Laravel artisan / Symfony bin/console)
+
+    /// Detected when the folder opens (and when composer.json changes).
+    private(set) var framework: PHPFramework?
+    private(set) var consoleCommands: [ConsoleCommand] = []
+    private(set) var routes: [FrameworkRoute] = []
+    private(set) var isLoadingFramework = false
+    /// Why the last command / route listing failed (shown in the sheet).
+    private(set) var frameworkError: String?
+    var isShowingConsoleCommands = false
+    var isShowingRoutes = false
+
+    func showConsoleCommands() async {
+        guard let framework else { return }
+        isShowingConsoleCommands = true
+        if let output = await frameworkOutput(framework.listArguments) {
+            consoleCommands = PHPFramework.parseCommands(output)
+            if consoleCommands.isEmpty { frameworkError = "\(framework.console) list returned no commands:\n\(output.prefix(2000))" }
+        }
+    }
+
+    /// Runs `php artisan|bin/console <command> <arguments>` in the Output panel.
+    func runConsoleCommand(_ name: String, arguments: String = "") {
+        guard let framework else { return }
+        runTool("php", [framework.console, name] + ShellWords.split(arguments))
+    }
+
+    func showRoutes() async {
+        guard let framework else { return }
+        isShowingRoutes = true
+        if let output = await frameworkOutput(framework.routeArguments) {
+            routes = framework.parseRoutes(output)
+            if routes.isEmpty { frameworkError = "No routes found:\n\(output.prefix(2000))" }
+        }
+    }
+
+    /// Opens the controller class (and method) a route points to.
+    @discardableResult
+    func openController(for route: FrameworkRoute) -> Bool {
+        guard let rootURL, let action = route.action, let target = PHPFramework.controller(of: action),
+              let file = Composer.file(forClass: target.className, in: rootURL) else {
+            flashStatus("Can't locate the controller for \(route.path)")
+            return false
+        }
+        var position = TextPosition(line: 0, character: 0)
+        if let text = try? String(contentsOf: file, encoding: .utf8) {
+            let method = target.method ?? "__invoke"
+            let pattern = #"function\s+&?"# + NSRegularExpression.escapedPattern(for: method) + #"\s*\("#
+            if let range = text.range(of: pattern, options: .regularExpression) {
+                position = LineIndex(text).position(of: NSRange(range, in: text).location)
+            }
+        }
+        navigate(to: file, position: position)
+        isShowingRoutes = false
+        return true
+    }
+
+    private func frameworkOutput(_ arguments: [String]) async -> String? {
+        guard let rootURL, let php = ToolLocator.find("php") else { return nil }
+        isLoadingFramework = true
+        frameworkError = nil
+        defer { isLoadingFramework = false }
+        let result = await ProcessRunner.run(php, arguments, in: rootURL)
+        if result.status != 0 {
+            frameworkError = "php \(arguments.joined(separator: " ")) exited with \(result.status):\n\(result.output.prefix(2000))"
+            return nil
+        }
+        return result.output
     }
 
     // MARK: - Composer packages

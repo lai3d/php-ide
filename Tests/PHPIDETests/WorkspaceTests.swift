@@ -808,3 +808,39 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceFrameworkTests {
+    /// Tests/Fixtures/console-app after `composer install` (a real Symfony Console app).
+    nonisolated static let project = ProcessInfo.processInfo.environment["PHPIDE_CONSOLE_PROJECT"]
+
+    @Test(.enabled(if: project != nil && PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func listsAndRunsCommandsAndOpensRouteControllers() async throws {
+        let dir = URL(fileURLWithPath: try #require(Self.project)).canonicalFileURL
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        #expect(workspace.framework == .symfony)
+
+        await workspace.showConsoleCommands()
+        #expect(workspace.isShowingConsoleCommands && workspace.frameworkError == nil)
+        #expect(workspace.consoleCommands.contains { $0.name == "app:greet" && $0.description == "Greets someone" })
+        #expect(!workspace.consoleCommands.contains { $0.name == "_complete" })
+        workspace.isShowingConsoleCommands = false
+
+        workspace.runConsoleCommand("app:greet", arguments: "\"Ada Lovelace\"")
+        for _ in 0..<200 where workspace.isRunning || !workspace.output.contains("[process exited") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(workspace.output.contains("Hello, Ada Lovelace!"))
+
+        await workspace.showRoutes()
+        #expect(workspace.routes.map(\.name) == ["app_home", "app_user_show"])
+        let show = try #require(workspace.routes.first { $0.name == "app_user_show" })
+        #expect(workspace.openController(for: show))
+        #expect(workspace.activeDocument?.name == "UserController.php" && !workspace.isShowingRoutes)
+        #expect(workspace.activeDocument?.revealTarget?.position.line == 13)  // public function show(
+        let home = try #require(workspace.routes.first { $0.name == "app_home" })
+        #expect(!workspace.openController(for: home))  // HomeController doesn't exist in the fixture
+        await workspace.shutdown()
+    }
+}

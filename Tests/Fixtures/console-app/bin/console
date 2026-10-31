@@ -1,0 +1,54 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+
+#[AsCommand(name: 'app:greet', description: 'Greets someone')]
+final class GreetCommand extends Command
+{
+    protected function configure(): void
+    {
+        $this->addArgument('name', InputArgument::OPTIONAL, 'Who to greet', 'World');
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $output->writeln('Hello, ' . $input->getArgument('name') . '!');
+        return Command::SUCCESS;
+    }
+}
+
+/** Stand-in for FrameworkBundle's debug:router, printing its JSON format. */
+#[AsCommand(name: 'debug:router', description: 'Display current routes for an application')]
+final class RouterCommand extends Command
+{
+    protected function configure(): void
+    {
+        $this->addOption('format', null, InputOption::VALUE_REQUIRED, 'txt or json', 'txt');
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $routes = [
+            'app_home' => ['path' => '/', 'method' => 'GET', 'defaults' => ['_controller' => 'App\\Controller\\HomeController::index']],
+            'app_user_show' => ['path' => '/users/{id}', 'method' => 'GET|HEAD', 'defaults' => ['_controller' => 'App\\Controller\\UserController::show']],
+        ];
+        $output->writeln(json_encode($routes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        return Command::SUCCESS;
+    }
+}
+
+$app = new Application('fixture', '1.0');
+$app->add(new GreetCommand());
+$app->add(new RouterCommand());
+$app->run();

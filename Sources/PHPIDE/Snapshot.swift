@@ -205,6 +205,14 @@ enum Snapshot {
                 workspace.isEditingRunConfigurations = true
                 try? await Task.sleep(for: .milliseconds(800))
             }
+            if args.contains("--snapshot-console"), let workspace {
+                await workspace.showConsoleCommands()
+                try? await Task.sleep(for: .milliseconds(600))
+            }
+            if args.contains("--snapshot-routes"), let workspace {
+                await workspace.showRoutes()
+                try? await Task.sleep(for: .milliseconds(600))
+            }
             if args.contains("--snapshot-packages"), let workspace {
                 workspace.showPackages()
                 if args.contains("--snapshot-outdated") { await workspace.checkOutdatedPackages() }
