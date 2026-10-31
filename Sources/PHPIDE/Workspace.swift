@@ -905,12 +905,15 @@ final class Workspace {
     // MARK: - Language features
 
     func completions(in document: Document, at offset: Int) async -> [CompletionItem] {
-        // Built-in snippets for the word being typed (not after "." — that's a member).
+        // Built-in snippets for the word being typed.
         let ns = document.text as NSString
         let start = GoIdentifier.prefixStart(in: ns, before: offset)
         let prefix = ns.substring(with: NSRange(location: start, length: offset - start))
-        let afterDot = start > 0 && ns.character(at: start - 1) == 0x2E
-        let snippets = document.isPHP && !afterDot ? GoSnippets.completions(matching: prefix) : []
+        // Not after `->`, `?->`, `::` or `$` (members and variables).
+        let previous = start > 0 ? ns.character(at: start - 1) : 0
+        let afterMember = (previous == 0x3E && start > 1 && ns.character(at: start - 2) == 0x2D)
+            || (previous == 0x3A && start > 1 && ns.character(at: start - 2) == 0x3A) || previous == 0x24
+        let snippets = document.isPHP && !afterMember && !prefix.hasPrefix("$") ? PHPSnippets.completions(matching: prefix) : []
         guard case let (lsp, params)? = positionRequest(document, at: offset),
               let result = try? await lsp.request("textDocument/completion", params: params)
         else { return snippets }

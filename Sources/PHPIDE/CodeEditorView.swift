@@ -278,9 +278,11 @@ struct CodeEditorView: NSViewRepresentable {
                 scheduleSignatureHelp(after: .milliseconds(80))
             }
 
+            let caretNow = textView.selectedRange().location
+            let isTrigger = typed?.utf16.count == 1 && GoIdentifier.isMemberTrigger(in: textView.string as NSString, endingAt: caretNow)
             if let typed, typed.utf16.count == 1, let unit = typed.utf16.first,
-               unit == 0x2E || GoIdentifier.isIdentifier(unit) {
-                if unit == 0x2E {  // "." starts a fresh member completion
+               isTrigger || GoIdentifier.isIdentifier(unit) {
+                if isTrigger {  // -> :: $ \ start a fresh completion
                     completionItems = []
                     completionPopup.hide()
                     scheduleCompletion(after: .zero)
@@ -713,12 +715,28 @@ struct CodeEditorView: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 autoIndentNewline(in: textView)
                 return true
+            case #selector(NSResponder.insertTab(_:)) where parent.highlightPHP:
+                // PSR-12: spaces. A selection across lines indents those lines.
+                let selection = textView.selectedRange()
+                let ns = textView.string as NSString
+                if selection.length > 0, ns.substring(with: selection).contains("\n") {
+                    perform(.indent)
+                } else {
+                    let lineStart = ns.lineRange(for: NSRange(location: selection.location, length: 0)).location
+                    let column = selection.location - lineStart
+                    let width = TextEditing.indentUnit.count
+                    textView.insertText(String(repeating: " ", count: width - column % width), replacementRange: selection)
+                }
+                return true
+            case #selector(NSResponder.insertBacktab(_:)) where parent.highlightPHP:
+                perform(.outdent)
+                return true
             default:
                 return false
             }
         }
 
-        /// Keep the current line's indentation, and add a tab after `{` / `(`.
+        /// Keep the current line's indentation, and add one level (4 spaces) after `{` / `(` / `[`.
         private func autoIndentNewline(in textView: NSTextView) {
             let ns = textView.string as NSString
             let selection = textView.selectedRange()
@@ -727,9 +745,9 @@ struct CodeEditorView: NSViewRepresentable {
                                                     length: selection.location - lineRange.location))
             let indent = String(before.prefix { $0 == "\t" || $0 == " " })
             let trimmed = before.trimmingCharacters(in: .whitespaces)
-            let extra = (trimmed.hasSuffix("{") || trimmed.hasSuffix("(")) ? "\t" : ""
+            let extra = (trimmed.hasSuffix("{") || trimmed.hasSuffix("(") || trimmed.hasSuffix("[")) ? TextEditing.indentUnit : ""
             let next: unichar? = selection.location < ns.length ? ns.character(at: selection.location) : nil
-            if !extra.isEmpty, selection.length == 0, next == 0x7D || next == 0x29 {
+            if !extra.isEmpty, selection.length == 0, next == 0x7D || next == 0x29 || next == 0x5D {
                 // Between a pair, e.g. {|}: open a block with the closer on its own line.
                 textView.insertText("\n" + indent + extra + "\n" + indent, replacementRange: selection)
                 textView.setSelectedRange(NSRange(location: selection.location + 1 + (indent + extra as NSString).length, length: 0))
@@ -909,7 +927,7 @@ struct CodeEditorView: NSViewRepresentable {
             let caret = textView.selectedRange().location
             let start = GoIdentifier.prefixStart(in: ns, before: caret)
             let prefix = ns.substring(with: NSRange(location: start, length: caret - start))
-            if let first = prefix.utf16.first, !GoIdentifier.isIdentifierStart(first) {
+            if let first = prefix.utf16.first, first != 0x24, !GoIdentifier.isIdentifierStart(first) {
                 completionPopup.hide()  // typing a number
                 return
             }

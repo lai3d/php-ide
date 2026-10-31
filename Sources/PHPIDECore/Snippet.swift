@@ -93,32 +93,44 @@ public struct Snippet: Sendable, Hashable {
     }
 }
 
-/// Built-in Go snippets, offered in completion by trigger word.
-public enum GoSnippets {
+/// Built-in PHP snippets, offered in completion by trigger word. Bodies indent with `\t`
+/// (expanded to `TextEditing.indentUnit`); `\$` is a literal dollar.
+public enum PHPSnippets {
     public static let all: [(trigger: String, detail: String, body: String)] = [
-        ("iferr", "if err != nil { return … }", "if err != nil {\n\treturn ${1:err}\n}$0"),
-        ("errorf", "fmt.Errorf(\"…: %w\", err)", "fmt.Errorf(\"${1:context}: %w\", ${2:err})$0"),
-        ("fori", "for i := 0; i < n; i++ { … }", "for i := 0; i < ${1:n}; i++ {\n\t$0\n}"),
-        ("forr", "for k, v := range … { … }", "for ${1:_}, ${2:v} := range ${3:items} {\n\t$0\n}"),
-        ("func", "func name(…) … { … }", "func ${1:name}(${2}) ${3}{\n\t$0\n}"),
-        ("meth", "func (r T) Name(…) … { … }", "func (${1:r} ${2:*Receiver}) ${3:Name}(${4}) ${5}{\n\t$0\n}"),
-        ("main", "func main() { … }", "func main() {\n\t$0\n}"),
-        ("test", "func TestName(t *testing.T) { … }", "func Test${1:Name}(t *testing.T) {\n\t$0\n}"),
-        ("tt", "table-driven test", "tests := []struct {\n\tname string\n\t${1:input} ${2:string}\n\twant ${3:string}\n}{\n\t{name: \"${4:case}\"},\n}\nfor _, tt := range tests {\n\tt.Run(tt.name, func(t *testing.T) {\n\t\t$0\n\t})\n}"),
-        ("sw", "switch … { case …: }", "switch ${1:x} {\ncase ${2:value}:\n\t$0\n}"),
-        ("sel", "select { case …: }", "select {\ncase ${1:v} := <-${2:ch}:\n\t$0\n}"),
-        ("gof", "go func() { … }()", "go func() {\n\t$0\n}()"),
-        ("deferf", "defer func() { … }()", "defer func() {\n\t$0\n}()"),
-        ("st", "type Name struct { … }", "type ${1:Name} struct {\n\t$0\n}"),
-        ("if", "interface { … }", "type ${1:Name} interface {\n\t$0\n}"),
+        ("class", "final class Name { … }", "final class ${1:Name}\n{\n\t$0\n}"),
+        ("interface", "interface Name { … }", "interface ${1:Name}\n{\n\t$0\n}"),
+        ("enum", "enum Name: string { case … }", "enum ${1:Name}: ${2:string}\n{\n\tcase ${3:Value} = '${4:value}';$0\n}"),
+        ("ctor", "public function __construct(…) {}", "public function __construct(\n\tprivate readonly ${1:Type} \\$${2:name},\n) {\n}$0"),
+        ("pubf", "public function name(): type { … }", "public function ${1:name}(${2}): ${3:void}\n{\n\t$0\n}"),
+        ("prif", "private function name(): type { … }", "private function ${1:name}(${2}): ${3:void}\n{\n\t$0\n}"),
+        ("pubsf", "public static function name(): type { … }", "public static function ${1:name}(${2}): ${3:void}\n{\n\t$0\n}"),
+        ("fn", "fn(…) => …", "fn(${1:\\$x}) => ${2:\\$x}$0"),
+        ("func", "function (…) use (…) { … }", "function (${1}) use (${2}) {\n\t$0\n}"),
+        ("foreach", "foreach (… as $k => $v) { … }", "foreach (\\$${1:items} as \\$${2:key} => \\$${3:value}) {\n\t$0\n}"),
+        ("fore", "foreach (… as $v) { … }", "foreach (\\$${1:items} as \\$${2:item}) {\n\t$0\n}"),
+        ("fori", "for ($i = 0; $i < n; $i++) { … }", "for (\\$${1:i} = 0; \\$${1:i} < ${2:\\$count}; \\$${1:i}++) {\n\t$0\n}"),
+        ("if", "if (…) { … }", "if (${1:condition}) {\n\t$0\n}"),
+        ("ife", "if (…) { … } else { … }", "if (${1:condition}) {\n\t$2\n} else {\n\t$0\n}"),
+        ("match", "match (…) { … }", "match (${1:\\$value}) {\n\t${2:'a'} => ${3:1},\n\tdefault => ${4:null},\n}$0"),
+        ("try", "try { … } catch (…) { … }", "try {\n\t$1\n} catch (${2:\\\\Throwable} \\$${3:e}) {\n\t$0\n}"),
+        ("throw", "throw new …Exception(…)", "throw new ${1:\\\\RuntimeException}('${2:message}');$0"),
+        ("test", "public function testName(): void { … }", "public function test${1:Name}(): void\n{\n\t$0\n}"),
+        ("testcase", "final class NameTest extends TestCase { … }",
+         "use PHPUnit\\\\Framework\\\\TestCase;\n\nfinal class ${1:Name}Test extends TestCase\n{\n\tpublic function test${2:Something}(): void\n\t{\n\t\t$0\n\t}\n}"),
+        ("dp", "#[DataProvider] + provider method", "#[\\\\PHPUnit\\\\Framework\\\\Attributes\\\\DataProvider('${1:cases}')]\npublic function test${2:Name}(${3:int} \\$${4:input}): void\n{\n\t$0\n}\n\npublic static function ${1:cases}(): array\n{\n\treturn [\n\t\t'${5:case}' => [${6:1}],\n\t];\n}"),
+        ("strict", "declare(strict_types=1);", "declare(strict_types=1);\n$0"),
+        ("ns", "namespace …;", "namespace ${1:App};\n$0"),
+        ("vd", "var_dump(…);", "var_dump(${1:\\$value});$0"),
+        ("dd", "var_dump(…); exit;", "var_dump(${1:\\$value});\nexit(1);$0"),
     ]
 
     /// Completion items for snippets whose trigger matches `prefix` (fuzzy, needs ≥ 2 chars).
     public static func completions(matching prefix: String) -> [CompletionItem] {
         guard prefix.count >= 2 else { return [] }
         return all.filter { FuzzyMatch.matches(prefix, $0.trigger) }.map {
-            CompletionItem(label: $0.trigger, kind: .snippet, detail: $0.detail,
-                           insertText: Snippet.parse($0.body).text, sortText: "~" + $0.trigger, snippet: $0.body)
+            let body = $0.body.replacingOccurrences(of: "\t", with: TextEditing.indentUnit)
+            return CompletionItem(label: $0.trigger, kind: .snippet, detail: $0.detail,
+                                  insertText: Snippet.parse(body).text, sortText: "~" + $0.trigger, snippet: body)
         }
     }
 }

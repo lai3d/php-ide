@@ -90,6 +90,13 @@ import Testing
         let text = "\tfmt.Prin x1 42" as NSString
         #expect(GoIdentifier.prefixStart(in: text, before: 9) == 5)  // "Prin"
         #expect(GoIdentifier.prefixStart(in: text, before: 5) == 5)  // right after "."
+        let php = "echo $gre" as NSString
+        #expect(GoIdentifier.prefixStart(in: php, before: php.length) == 5)  // "$gre", dollar included
+        for (source, trigger) in [("$a->", true), ("$a?->", true), ("A::", true), ("$", true), ("new \\", true),
+                                  ("a > b", false), ("a: ", false), ("x", false)] {
+            let ns = source as NSString
+            #expect(GoIdentifier.isMemberTrigger(in: ns, endingAt: ns.length) == trigger, "\(source)")
+        }
         #expect(GoIdentifier.wordRange(in: text, at: 2) == NSRange(location: 1, length: 3))  // "fmt"
         #expect(GoIdentifier.wordRange(in: text, at: 4) == nil)  // "."
         #expect(GoIdentifier.wordRange(in: text, at: 11) == NSRange(location: 10, length: 2))  // "x1"

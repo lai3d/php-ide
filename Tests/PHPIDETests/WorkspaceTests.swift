@@ -610,3 +610,35 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceCompletionTests {
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("intelephense") != nil), .timeLimit(.minutes(1)))
+    func completesVariablesMembersAndSnippets() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-compl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try "<?php\nclass Greeter { public function greet(): string { return ''; } }\n$greeter = new Greeter();\n"
+            .write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let doc = try #require(workspace.activeDocument)
+        for _ in 0..<100 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
+
+        func items(after typed: String) async -> [CompletionItem] {
+            workspace.updateText(of: doc, to: "<?php\nclass Greeter { public function greet(): string { return ''; } }\n$greeter = new Greeter();\n" + typed)
+            return await workspace.completions(in: doc, at: (doc.text as NSString).length)
+        }
+        let variables = await items(after: "$gre")
+        let greeter = try #require(variables.first { $0.label == "$greeter" }, "\(variables.map(\.label))")
+        #expect(greeter.insertText == "$greeter")
+        #expect(!variables.contains { $0.kind == .snippet })
+        let members = await items(after: "$greeter->")
+        #expect(members.contains { $0.label == "greet" }, "\(members.map(\.label))")
+        #expect(!members.contains { $0.kind == .snippet })  // no snippets after ->
+        let snippets = await items(after: "fore")
+        #expect(snippets.contains { $0.label == "foreach" && $0.kind == .snippet })
+        await workspace.shutdown()
+    }
+}

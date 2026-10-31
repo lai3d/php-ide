@@ -70,7 +70,10 @@ public enum TextEditing {
         return TextChange(range: range, replacement: replacement, selection: newSelection)
     }
 
-    /// Indents (adds a tab) or outdents (removes a tab or up to four spaces) the selected lines.
+    /// One indentation level: four spaces (PSR-12).
+    public static let indentUnit = "    "
+
+    /// Indents (adds `indentUnit`) or outdents (removes a tab or up to four spaces) the selected lines.
     public static func shiftLines(in text: String, selection: NSRange, outdent: Bool) -> TextChange {
         let ns = text as NSString
         let range = lineRange(in: ns, selection: selection)
@@ -85,7 +88,7 @@ public enum TextEditing {
                     new = String(new.dropFirst(min(4, new.prefix { $0 == " " }.count)))
                 }
             } else if !line.isEmpty {
-                new = "\t" + line
+                new = indentUnit + line
             }
             if index == 0 { firstDelta = new.utf16.count - line.utf16.count }
             return new

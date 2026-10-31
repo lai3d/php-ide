@@ -223,11 +223,27 @@ public enum GoIdentifier {
         isIdentifier(unit) && !(unit >= 0x30 && unit <= 0x39)
     }
 
-    /// Start offset of the identifier that ends at `offset` (== `offset` if none).
+    /// Start offset of the identifier that ends at `offset` (== `offset` if none). A PHP variable's
+    /// `$` belongs to it (`$gre` → completions insert `$greeter` over all of it).
     public static func prefixStart(in text: NSString, before offset: Int) -> Int {
         var i = min(max(offset, 0), text.length)
         while i > 0, isIdentifier(text.character(at: i - 1)) { i -= 1 }
+        if i > 0, text.character(at: i - 1) == 0x24 { i -= 1 }  // $
         return i
+    }
+
+    /// Whether the text just typed (ending at `offset`) opens a fresh PHP completion:
+    /// `->`, `?->`, `::`, `$` or a namespace `\`.
+    public static func isMemberTrigger(in text: NSString, endingAt offset: Int) -> Bool {
+        guard offset > 0, offset <= text.length else { return false }
+        let last = text.character(at: offset - 1)
+        let previous: unichar = offset > 1 ? text.character(at: offset - 2) : 0
+        switch last {
+        case 0x3E: return previous == 0x2D  // ->
+        case 0x3A: return previous == 0x3A  // ::
+        case 0x24, 0x5C: return true        // $  \
+        default: return false
+        }
     }
 
     /// Start of the callee expression (e.g. `fmt.Printf`) for the call whose argument
