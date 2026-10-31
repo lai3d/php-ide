@@ -1911,6 +1911,13 @@ final class Workspace {
         launchDebugger(title: "Listening for Xdebug on :\(port)", needsXdebugLocally: false) { _, _ in
             PHPDebugAdapter.listenArguments(port: port)
         }
+        guard isDebugging else { return }
+        appendOutput("""
+            Waiting for Xdebug on 127.0.0.1:\(port). Start PHP with step debugging pointed here, e.g.
+              php -dxdebug.mode=debug -dxdebug.start_with_request=yes -dxdebug.client_port=\(port) script.php
+            or, for web requests, xdebug.mode=debug + xdebug.client_port=\(port) in php.ini and the XDEBUG_SESSION cookie.
+
+            """)
     }
 
     /// Starts a session: checks php / Xdebug / node, installs the adapter on first use, then launches.

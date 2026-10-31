@@ -506,8 +506,8 @@ import PHPIDECore
         workspace.toggleBreakpoint(in: document, line: 2)
         let port = Int.random(in: 40000..<50000)
         workspace.listenForXdebug(port: port)
-        for _ in 0..<100 where !workspace.output.contains("Listening on") { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(workspace.output.contains("Listening on"))
+        #expect(workspace.output.contains("Waiting for Xdebug on 127.0.0.1:\(port)"))
+        try await Task.sleep(for: .milliseconds(500))  // let the adapter start listening
 
         // A php run started "elsewhere" (here: a plain process) with Xdebug pointed at our port.
         let php = try #require(PHPIDECore.ToolLocator.find("php"))
