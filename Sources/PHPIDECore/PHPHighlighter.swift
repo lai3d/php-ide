@@ -59,11 +59,36 @@ public enum PHPHighlighter {
         "new", "extends", "implements", "instanceof", "class", "interface", "trait", "enum", "insteadof",
     ]
 
-    public static func tokenize(_ text: String) -> [SyntaxToken] {
-        var lexer = Lexer(Array(text.utf16))
+    /// What kind of file is being lexed.
+    public enum Dialect: Sendable, Equatable {
+        /// `.php`: HTML with `<?php ?>` islands.
+        case php
+        /// `.blade.php`: PHP plus `{{ }}`, `{!! !!}`, `{{-- --}}` and `@directives`.
+        case blade
+        /// `.twig`: HTML with `{{ }}`, `{% %}` and `{# #}` (no PHP).
+        case twig
+
+        /// The dialect for a file name, or nil when it isn't a PHP / template file.
+        public static func of(fileName name: String) -> Dialect? {
+            let lower = name.lowercased()
+            if lower.hasSuffix(".blade.php") { return .blade }
+            if lower.hasSuffix(".twig") { return .twig }
+            return PHPLanguageServer.isPHPFile(URL(fileURLWithPath: name)) ? .php : nil
+        }
+    }
+
+    public static func tokenize(_ text: String, dialect: Dialect = .php) -> [SyntaxToken] {
+        var lexer = Lexer(Array(text.utf16), dialect: dialect)
         lexer.run()
         return lexer.tokens
     }
+
+    static let twigKeywords: Set<String> = [
+        "if", "elseif", "else", "endif", "for", "endfor", "in", "block", "endblock", "extends", "include", "embed",
+        "endembed", "use", "set", "endset", "macro", "endmacro", "import", "from", "as", "with", "only", "not",
+        "and", "or", "is", "defined", "null", "none", "true", "false", "apply", "endapply", "verbatim",
+        "endverbatim", "autoescape", "endautoescape", "do", "flush", "sandbox", "endsandbox", "deprecated", "guard",
+    ]
 
     static let jsKeywords: Set<String> = [
         "async", "await", "break", "case", "catch", "class", "const", "continue", "default", "delete", "do",
@@ -90,7 +115,12 @@ public enum PHPHighlighter {
         /// The last keyword-ish word seen, for "the identifier after `new` is a class".
         var previousWord = ""
 
-        init(_ s: [UInt16]) { self.s = s }
+        let dialect: Dialect
+
+        init(_ s: [UInt16], dialect: Dialect) {
+            self.s = s
+            self.dialect = dialect
+        }
 
         func at(_ k: Int) -> UInt16 { k < s.count ? s[k] : 0 }
         func starts(_ literal: String, at k: Int, caseInsensitive: Bool = false) -> Bool {
@@ -136,6 +166,14 @@ public enum PHPHighlighter {
                     add(start, i, .phpTag)
                     return
                 }
+                // Template echoes / tags inside an attribute value: color them, then resume the value.
+                if case .attributeValue = htmlState, dialect != .php,
+                   starts("{{", at: i) || starts("{!!", at: i) || (dialect == .twig && starts("{%", at: i)) {
+                    flushSegment(upTo: i)
+                    _ = dialect == .blade ? blade() : twig()
+                    segmentStart = i
+                    continue
+                }
                 switch htmlState {
                 case .text: htmlText()
                 case .inTag: htmlInTag()
@@ -177,6 +215,8 @@ public enum PHPHighlighter {
         }
 
         private mutating func htmlText() {
+            if dialect == .blade, blade() { return }
+            if dialect == .twig, twig() { return }
             if starts("<!--", at: i) {
                 htmlState = .comment
                 segmentStart = i
@@ -266,15 +306,142 @@ public enum PHPHighlighter {
             }
         }
 
+        // MARK: Blade
+
+        /// A Blade construct at `i` (returns false when there is none).
+        private mutating func blade() -> Bool {
+            if starts("{{--", at: i) {
+                let start = i
+                i = index(of: "--}}", from: i + 4).map { $0 + 4 } ?? s.count
+                add(start, i, .comment)
+                return true
+            }
+            for (open, close) in [("{!!", "!!}"), ("{{", "}}")] where starts(open, at: i) {
+                if i > 0, s[i - 1] == 64 { i += open.utf16.count; return true }  // @{{ is escaped: literal text
+                add(i, i + open.utf16.count, .phpTag)
+                i += open.utf16.count
+                php(terminator: close)
+                if starts(close, at: i) {
+                    add(i, i + close.utf16.count, .phpTag)
+                    i += close.utf16.count
+                }
+                return true
+            }
+            // @directive, @directive(args); not e@mail, not @@escaped
+            guard s[i] == 64, Self.isTagStart(at(i + 1)), i == 0 || (!Self.isIdent(s[i - 1]) && s[i - 1] != 64) else { return false }
+            let start = i
+            i += 1
+            while Self.isIdent(at(i)) { i += 1 }
+            let name = String(decoding: s[start + 1..<i], as: UTF16.self)
+            add(start, i, .keyword)
+            if name == "php", at(i) != 40 {  // @php … @endphp
+                let close = index(of: "@endphp", from: i) ?? s.count
+                php(end: close)
+                i = close
+                return true
+            }
+            var j = i
+            while at(j) == 32 { j += 1 }
+            if at(j) == 40, let closeParen = matchingParen(from: j) {
+                i = j + 1
+                php(end: closeParen)
+                i = closeParen + 1
+            }
+            return true
+        }
+
+        /// Index of `needle` at or after `from`.
+        private func index(of needle: String, from: Int) -> Int? {
+            var k = from
+            while k < s.count { if starts(needle, at: k) { return k }; k += 1 }
+            return nil
+        }
+
+        /// The `)` matching the `(` at `open`, skipping strings.
+        private func matchingParen(from open: Int) -> Int? {
+            var depth = 0, k = open
+            while k < s.count {
+                let c = s[k]
+                if c == 39 || c == 34 {
+                    k += 1
+                    while k < s.count, s[k] != c { k += s[k] == 92 ? 2 : 1 }
+                } else if c == 40 { depth += 1 } else if c == 41 { depth -= 1; if depth == 0 { return k } }
+                else if c == 10, depth == 1, k > open + 2000 { return nil }
+                k += 1
+            }
+            return nil
+        }
+
+        // MARK: Twig
+
+        /// A Twig construct at `i` (returns false when there is none).
+        private mutating func twig() -> Bool {
+            if starts("{#", at: i) {
+                let start = i
+                i = index(of: "#}", from: i + 2).map { $0 + 2 } ?? s.count
+                add(start, i, .comment)
+                return true
+            }
+            for (open, close) in [("{{", "}}"), ("{%", "%}")] where starts(open, at: i) {
+                let isTag = open == "{%"
+                add(i, i + 2 + (at(i + 2) == 45 ? 1 : 0), .phpTag)  // {{- / {%- whitespace control
+                i += 2 + (at(i + 2) == 45 ? 1 : 0)
+                let end = index(of: close, from: i) ?? s.count
+                twigExpression(end: at(end - 1) == 45 ? end - 1 : end, tagName: isTag)
+                i = end
+                if end < s.count {
+                    let delimiterStart = at(end - 1) == 45 ? end - 1 : end
+                    add(delimiterStart, end + 2, .phpTag)
+                    i = end + 2
+                }
+                return true
+            }
+            return false
+        }
+
+        private mutating func twigExpression(end: Int, tagName: Bool) {
+            var first = tagName
+            while i < end {
+                let c = s[i]
+                if c == 39 || c == 34 {
+                    let start = i
+                    i += 1
+                    while i < end, s[i] != c { i += s[i] == 92 ? 2 : 1 }
+                    i = min(i + 1, end)
+                    add(start, i, .string)
+                } else if Self.isDigit(c) {
+                    let start = i
+                    while i < end, Self.isDigit(s[i]) || s[i] == 46 { i += 1 }
+                    add(start, i, .number)
+                } else if Self.isIdentStart(c) {
+                    let start = i
+                    while i < end, Self.isIdent(s[i]) { i += 1 }
+                    let word = String(decoding: s[start..<i], as: UTF16.self)
+                    var p = start - 1
+                    while p >= 0, s[p] == 32 { p -= 1 }
+                    let afterPipe = p >= 0 && s[p] == 124
+                    if first || PHPHighlighter.twigKeywords.contains(word) { add(start, i, .keyword) }
+                    else if afterPipe || at(i) == 40 { add(start, i, .function) }  // |filter, function()
+                    first = false
+                } else {
+                    if !Self.isSpace(c) { first = false }
+                    i += 1
+                }
+            }
+        }
+
         static func isHexDigit(_ c: UInt16) -> Bool { isDigit(c) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70) }
         static func isTagStart(_ c: UInt16) -> Bool { (c >= 97 && c <= 122) || (c >= 65 && c <= 90) }
         static func isTagName(_ c: UInt16) -> Bool { isTagStart(c) || isDigit(c) || c == 45 || c == 58 || c == 95 }
 
-        mutating func php() {
-            while i < s.count {
+        /// PHP code up to `?>` — or, inside a template construct, up to `end` (exclusive) / `terminator`.
+        mutating func php(end: Int? = nil, terminator: String? = nil) {
+            let limit = min(end ?? s.count, s.count)
+            while i < limit {
                 let c = s[i]
+                if let terminator, starts(terminator, at: i) { return }
                 switch c {
-                case 63 where at(i + 1) == 62:  // ?>
+                case 63 where at(i + 1) == 62 && end == nil && terminator == nil:  // ?>
                     add(i, i + 2, .phpTag)
                     i += 2
                     return

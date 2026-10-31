@@ -32,7 +32,10 @@ struct EditorServices {
 /// completion (type or Esc), hover info, and ⌘-click go-to-definition.
 struct CodeEditorView: NSViewRepresentable {
     var text: String
+    /// Language features (completion, hover, …): PHP files only.
     var highlightPHP: Bool
+    /// Syntax highlighting: PHP, Blade or Twig (nil for other files).
+    var dialect: PHPHighlighter.Dialect?
     var isTestFile = false
     var testStatuses: [String: TestResult.Status] = [:]
     var breakpoints: Set<Int> = []
@@ -1264,10 +1267,12 @@ struct CodeEditorView: NSViewRepresentable {
 
             storage.beginEditing()
             storage.setAttributes(EditorTheme.baseAttributes(parent.settings), range: fullRange)
-            if parent.highlightPHP {
-                for token in PHPHighlighter.tokenize(text) {
+            if let dialect = parent.dialect {
+                for token in PHPHighlighter.tokenize(text, dialect: dialect) {
                     storage.addAttribute(.foregroundColor, value: EditorTheme.color(for: token.kind), range: token.range)
                 }
+            }
+            if parent.highlightPHP {
                 for run in semanticRuns where NSMaxRange(run.range) <= storage.length {
                     storage.addAttribute(.foregroundColor, value: run.color, range: run.range)
                 }

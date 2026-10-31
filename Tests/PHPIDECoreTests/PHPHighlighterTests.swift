@@ -85,4 +85,49 @@ import Testing
         #expect(kinds("<?php 'open").last?.1 == .string)
         #expect(kinds("<?php $x = <<<EOT\nno end").last?.0 == "<<<EOT\nno end")
     }
+
+    // MARK: Blade
+
+    private func blade(_ source: String) -> [(String, SyntaxTokenKind)] {
+        let ns = source as NSString
+        return PHPHighlighter.tokenize(source, dialect: .blade).map { (ns.substring(with: $0.range), $0.kind) }
+    }
+
+    @Test func bladeEchoesDirectivesAndComments() {
+        let tokens = blade("<p class=\"x\">{{ $user->name }} {!! $html !!}</p>{{-- hidden --}}@if($user->isAdmin()) Admin @endif")
+        // (`->name` is a property: only calls like `->isAdmin()` are colored)
+        #expect(tokens.map(\.0) == ["<p", "class", "\"x\"", ">", "{{", "$user", "}}", "{!!", "$html", "!!}", "</p", ">",
+                                    "{{-- hidden --}}", "@if", "$user", "isAdmin", "@endif"])
+        #expect(tokens[4].1 == .phpTag && tokens[5].1 == .variable && tokens[12].1 == .comment && tokens[13].1 == .keyword)
+    }
+
+    @Test func bladeEchoInsideAnAttribute() {
+        let tokens = blade("<a href=\"/x/{{ $id }}/y\">")
+        #expect(tokens.map(\.0) == ["<a", "href", "\"/x/", "{{", "$id", "}}", "/y\"", ">"])
+        #expect(tokens[2].1 == .string && tokens[3].1 == .phpTag && tokens[6].1 == .string)
+    }
+
+    @Test func bladeEscapesEmailsAndPhpBlocks() {
+        let tokens = blade("mail me@example.com, @{{ raw }} and @@if\n@php $x = 1; @endphp")
+        #expect(tokens.map(\.0) == ["@php", "$x", "1", "@endphp"])
+    }
+
+    @Test func dialectFromFileName() {
+        #expect(PHPHighlighter.Dialect.of(fileName: "welcome.blade.php") == .blade)
+        #expect(PHPHighlighter.Dialect.of(fileName: "base.html.twig") == .twig)
+        #expect(PHPHighlighter.Dialect.of(fileName: "index.php") == .php)
+        #expect(PHPHighlighter.Dialect.of(fileName: "app.js") == nil)
+    }
+
+    // MARK: Twig
+
+    @Test func twigTagsExpressionsFiltersAndComments() {
+        let source = "{% extends 'base.html.twig' %}{# note #}<h1>{{ title|upper }}</h1>{%- for item in items -%}{{ item.name|default('x') }}{% endfor %}<?php no ?>"
+        let ns = source as NSString
+        let tokens = PHPHighlighter.tokenize(source, dialect: .twig).map { (ns.substring(with: $0.range), $0.kind) }
+        let colored = tokens.filter { [.keyword, .string, .comment, .function].contains($0.1) }.map(\.0)
+        #expect(colored == ["extends", "'base.html.twig'", "{# note #}", "upper", "for", "in", "default", "'x'", "endfor"])
+        #expect(tokens.contains { $0.0 == "{%-" && $0.1 == .phpTag } && tokens.contains { $0.0 == "-%}" && $0.1 == .phpTag })
+        #expect(tokens.contains { $0.0 == "<h1" && $0.1 == .tag })
+    }
 }

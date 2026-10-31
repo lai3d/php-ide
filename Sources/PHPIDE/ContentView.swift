@@ -317,6 +317,7 @@ struct DocumentEditor: View {
         CodeEditorView(
             text: document.text,
             highlightPHP: document.isPHP,
+            dialect: PHPHighlighter.Dialect.of(fileName: document.name),
             isTestFile: PHPTestFinder.isTestFile(document.name),
             testStatuses: workspace.testStatuses,
             breakpoints: workspace.breakpointLines(for: document),
