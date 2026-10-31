@@ -387,6 +387,7 @@ final class Workspace {
             restoreSession(in: url)
         }
         refreshGit()
+        Task { await refreshXdebugStatus() }
         await startLanguageServer(root: url)
     }
 
@@ -1948,7 +1949,8 @@ final class Workspace {
 
     /// Install hints for the tools the IDE runs.
     static let installHints = [
-        "php": "brew install php", "composer": "brew install composer", "go": "https://go.dev/dl/",
+        "php": "brew install php", "composer": "brew install composer", "pecl": "brew install php (ships pecl)",
+        "node": "brew install node", "go": "https://go.dev/dl/",
     ]
 
     func runGo(_ arguments: [String], environment extra: [String: String] = [:]) {
@@ -2006,6 +2008,29 @@ final class Workspace {
         } catch {
             isRunning = false
             appendOutput("Failed to start \(tool): \(error.localizedDescription)\n")
+        }
+    }
+
+    // MARK: - Xdebug
+
+    /// Last known Xdebug availability (nil until probed).
+    private(set) var xdebugStatus: XdebugStatus?
+
+    @discardableResult
+    func refreshXdebugStatus() async -> XdebugStatus {
+        guard let php = ToolLocator.find("php") else {
+            xdebugStatus = .missing
+            return .missing
+        }
+        let status = await Xdebug.status(php: php)
+        xdebugStatus = status
+        return status
+    }
+
+    /// Builds Xdebug with PECL (output streams into the Output panel), then re-probes.
+    func installXdebug() {
+        runTool("pecl", ["install", "xdebug"]) { _ in
+            Task { await self.refreshXdebugStatus() }
         }
     }
 

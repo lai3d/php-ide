@@ -279,6 +279,8 @@ struct PHPIDECommands: Commands {
                 Button("Terminal") { workspace.showTerminal() }
                     .keyboardShortcut("`", modifiers: .control)
                 Divider()
+                Button("Install Xdebug (pecl install xdebug)") { workspace.installXdebug() }
+                    .disabled(workspace.rootURL == nil || workspace.xdebugStatus?.isAvailable == true)
                 Menu("Composer") {
                     Button("Install (composer install)") { workspace.runTool("composer", ["install", "--no-interaction"]) }
                     Button("Update (composer update)") { workspace.runTool("composer", ["update", "--no-interaction"]) }
