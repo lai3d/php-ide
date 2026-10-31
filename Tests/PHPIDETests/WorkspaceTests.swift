@@ -508,17 +508,23 @@ import PHPIDECore
         let port = Int.random(in: 40000..<50000)
         workspace.listenForXdebug(port: port)
         #expect(workspace.output.contains("Waiting for Xdebug on 127.0.0.1:\(port)"))
-        try await Task.sleep(for: .milliseconds(500))  // let the adapter start listening
 
         // A php run started "elsewhere" (here: a plain process) with Xdebug pointed at our port.
         let php = try #require(PHPIDECore.ToolLocator.find("php"))
         let xdebug = await Xdebug.status(php: php)
-        let process = Process()
-        process.executableURL = php
-        process.arguments = xdebug.runtimeArguments + ["-dxdebug.client_port=\(port)", script.path]
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
+        // If the adapter isn't listening yet, Xdebug can't connect and php just runs to the end: start it again.
+        var process = Process()
         defer { if process.isRunning { process.terminate() } }
+        for _ in 0..<20 where workspace.executionLocation == nil {
+            process = Process()
+            process.executableURL = php
+            process.arguments = xdebug.runtimeArguments + ["-dxdebug.client_port=\(port)", "-dxdebug.connect_timeout_ms=300", script.path]
+            process.standardOutput = FileHandle.nullDevice
+            try process.run()
+            for _ in 0..<40 where process.isRunning && workspace.executionLocation == nil {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
 
         let location = try await waitForPause(workspace)
         #expect(location.path == script.path && location.line == 3)
@@ -648,7 +654,7 @@ import PHPIDECore
 /// Runs when `phpactor` is on the search path (e.g. ~/.local/bin/phpactor from phpactor.phar).
 @MainActor
 @Suite(.serialized) struct WorkspacePhpactorTests {
-    nonisolated static let available = PHPIDECore.ToolLocator.find("phpactor") != nil
+    nonisolated static let available = PHPIDECore.ToolLocator.find("phpactor") != nil && PHPIDECore.ToolLocator.find("composer") != nil
 
     private func open(_ files: [String: String]) async throws -> (Workspace, URL) {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-phpactor-\(UUID().uuidString)")
@@ -656,6 +662,10 @@ import PHPIDECore
         let dir = base.canonicalFileURL
         try #"{"autoload": {"psr-4": {"App\\": "src/"}}}"#.write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
         for (path, text) in files { try text.write(to: dir.appendingPathComponent(path), atomically: true, encoding: .utf8) }
+        // Phpactor finds classes through Composer's autoloader.
+        if let composer = PHPIDECore.ToolLocator.find("composer") {
+            _ = await ProcessRunner.run(composer, ["dump-autoload", "--no-interaction"], in: dir)
+        }
         let workspace = Workspace()
         workspace.preferredLanguageServer = .phpactor
         await workspace.openFolder(dir)
@@ -672,8 +682,20 @@ import PHPIDECore
         defer { try? FileManager.default.removeItem(at: dir) }
         let main = try #require(workspace.activeDocument)
         let offset = (main.text as NSString).range(of: "greet()").location + 1
+        // Rename only reaches files Phpactor has indexed: wait until it sees both the declaration and the call.
+        for _ in 0..<40 {
+            await workspace.findReferences(in: main, at: offset)
+            if workspace.referenceResults.count == 2 { break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        #expect(workspace.referenceResults.count == 2, "\(workspace.referenceTitle)")
         #expect(await workspace.prepareRename(in: main, at: offset) == "greet")
-        let error = await workspace.renameSymbol(in: main, at: offset, to: "salute")
+        // Right after start-up Phpactor may still be creating its index: retry until it answers.
+        var error: String? = "not tried"
+        for _ in 0..<20 where error != nil {
+            error = await workspace.renameSymbol(in: main, at: offset, to: "salute")
+            if error != nil { try await Task.sleep(for: .milliseconds(500)) }
+        }
         #expect(error == nil)
         #expect(main.text.contains("->salute()") && main.isDirty)  // open: buffer
         let greeter = try String(contentsOf: dir.appendingPathComponent("src/Greeter.php"), encoding: .utf8)
@@ -691,7 +713,12 @@ import PHPIDECore
         ])
         defer { try? FileManager.default.removeItem(at: dir) }
         let main = try #require(workspace.activeDocument)
-        await workspace.jumpToImplementation(from: main, at: (main.text as NSString).range(of: "Shape $s").location + 1)
+        // Implementations come from Phpactor's background index: ask again until it has caught up.
+        for _ in 0..<20 {
+            await workspace.jumpToImplementation(from: main, at: (main.text as NSString).range(of: "Shape $s").location + 1)
+            if workspace.referenceTitle.hasPrefix("2 ") { break }
+            try await Task.sleep(for: .milliseconds(500))
+        }
         #expect(workspace.referenceTitle == "2 implementations of ‘Shape’", "\(workspace.referenceTitle)")
         await workspace.shutdown()
     }

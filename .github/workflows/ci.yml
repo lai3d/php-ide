@@ -25,6 +25,12 @@ jobs:
       - name: Intelephense
         run: npm install -g intelephense
 
+      - name: Phpactor (rename, implementations, code actions tests)
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL -o "$HOME/.local/bin/phpactor" https://github.com/phpactor/phpactor/releases/latest/download/phpactor.phar
+          chmod +x "$HOME/.local/bin/phpactor"
+
       - name: Debug adapter (vscode-php-debug)
         run: |
           curl -sSL -o "$RUNNER_TEMP/php-debug.vsix" \
