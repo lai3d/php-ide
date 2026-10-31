@@ -783,3 +783,28 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceProjectFormatterTests {
+    /// The fixture project (PHPIDE_PHPUNIT_PROJECT) has Laravel Pint in vendor/bin.
+    @Test(.enabled(if: WorkspacePHPUnitTests.project != nil), .timeLimit(.minutes(1)))
+    func formatsWithTheProjectsPint() async throws {
+        let dir = URL(fileURLWithPath: try #require(WorkspacePHPUnitTests.project)).canonicalFileURL
+        try #require(PHPFormatter.locate(in: dir)?.0 == .pint, "composer install the fixture first")
+        let file = dir.appendingPathComponent("format-\(UUID().uuidString.prefix(6)).php")
+        try "<?php\nfunction  f( $a ){\nreturn $a;}\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let document = try #require(workspace.openFile(file))
+        await workspace.format(document)
+        #expect(document.text.contains("function f($a)\n{\n    return $a;\n}"), "\(document.text)")
+        #expect(document.isDirty)  // formatted in the buffer, not on disk yet
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("function  f( $a )"))
+        // No temp files left behind.
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix(".phpide-format-") }
+        #expect(leftovers.isEmpty)
+        await workspace.shutdown()
+    }
+}

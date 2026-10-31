@@ -45,3 +45,18 @@ import Testing
         #expect(!Composer.isValidPackageName("Monolog") && !Composer.isValidPackageName("a/b c") && !Composer.isValidPackageName("x"))
     }
 }
+
+@Suite struct PHPFormatterTests {
+    @Test func argumentsUseTheProjectConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-fmtargs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(PHPFormatter.pint.arguments(file: "/x.php", root: root) == ["/x.php", "--no-interaction"])
+        #expect(PHPFormatter.phpcbf.arguments(file: "/x.php", root: root).last == "--standard=PSR12")
+        try "{}".write(to: root.appendingPathComponent("pint.json"), atomically: true, encoding: .utf8)
+        try "<?php".write(to: root.appendingPathComponent(".php-cs-fixer.dist.php"), atomically: true, encoding: .utf8)
+        #expect(PHPFormatter.pint.arguments(file: "/x.php", root: root).contains("--config=\(root.path)/pint.json"))
+        #expect(PHPFormatter.phpCsFixer.arguments(file: "/x.php", root: root).contains("--config=\(root.path)/.php-cs-fixer.dist.php"))
+        #expect(PHPFormatter.locate(in: root) == nil)
+    }
+}

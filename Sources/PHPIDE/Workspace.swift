@@ -833,7 +833,16 @@ final class Workspace {
 
     /// Organizes imports (if the server can), then formats with the language server (PSR-12 style).
     func format(_ document: Document) async {
-        guard lspReady, document.isPHP, !document.isReadOnly, let lsp else { return }
+        guard document.isPHP, !document.isReadOnly else { return }
+        // A project formatter (Pint / PHP-CS-Fixer / phpcbf) wins: it knows the project's style.
+        if let rootURL, let (formatter, executable) = PHPFormatter.locate(in: rootURL) {
+            let version = document.version
+            guard let formatted = await formatter.format(document.text, original: document.url, executable: executable, root: rootURL)
+            else { return flashStatus("\(formatter.displayName) couldn't format \(document.name)") }
+            if document.version == version, formatted != document.text { replaceText(of: document, with: formatted) }
+            return
+        }
+        guard lspReady, let lsp else { return }
         let uri = JSONValue.string(document.url.absoluteString)
 
         var version = document.version
