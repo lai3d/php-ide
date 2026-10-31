@@ -1,6 +1,6 @@
 import Foundation
 
-/// A parsed `go test -coverprofile` file, mapped to files on disk.
+/// Line coverage from a PHPUnit Clover report, mapped to files on disk.
 public struct CoverageReport: Sendable, Hashable {
     public struct FileCoverage: Sendable, Hashable {
         /// Zero-based line → covered (true) / not covered (false). Lines without statements are absent.
@@ -24,51 +24,49 @@ public struct CoverageReport: Sendable, Hashable {
 
     public init() {}
 
-    /// The `module` path declared in a go.mod file.
-    public static func modulePath(goMod: String) -> String? {
-        for line in goMod.split(separator: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("module ") {
-                return trimmed.dropFirst("module ".count).trimmingCharacters(in: .whitespaces)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            }
-        }
-        return nil
-    }
-
-    /// Parses `file.go:startLine.startCol,endLine.endCol statements count` blocks.
-    /// Import paths under `modulePath` map into `root`; others are skipped.
-    public static func parse(_ profile: String, modulePath: String, root: String) -> CoverageReport {
+    /// Parses a PHPUnit Clover report (`--coverage-clover`): `<file name="…"><line num="12" type="stmt" count="3"/>`.
+    /// Paths go through `normalize` (e.g. symlink resolution) so they match the editor's keys.
+    public static func parseClover(_ data: Data, normalize: (String) -> String = { $0 }) -> CoverageReport {
+        let delegate = CloverParser()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.parse()
         var report = CoverageReport()
-        // A block can appear several times (e.g. once per test binary): keep the max count.
-        var blocks: [String: (statements: Int, count: Int, start: Int, end: Int)] = [:]
-        for line in profile.split(separator: "\n") where !line.hasPrefix("mode:") {
-            guard let colon = line.lastIndex(of: ":") else { continue }
-            let file = String(line[..<colon])
-            let fields = line[line.index(after: colon)...].split(separator: " ")
-            guard fields.count == 3, let statements = Int(fields[1]), let count = Int(fields[2]) else { continue }
-            let span = fields[0].split(separator: ",")
-            guard span.count == 2,
-                  let startLine = Int(span[0].split(separator: ".").first ?? ""),
-                  let endLine = Int(span[1].split(separator: ".").first ?? "")
-            else { continue }
-            let key = file + ":" + fields[0]
-            let previous = blocks[key]?.count ?? 0
-            blocks[key] = (statements, max(previous, count), startLine, endLine)
-        }
-        for (key, block) in blocks {
-            let importPath = String(key[..<key.lastIndex(of: ":")!])
-            guard importPath.hasPrefix(modulePath + "/") else { continue }
-            let path = (root as NSString).appendingPathComponent(String(importPath.dropFirst(modulePath.count + 1)))
-            var file = report.files[path, default: FileCoverage()]
-            file.statements += block.statements
-            if block.count > 0 { file.coveredStatements += block.statements }
-            for line in (block.start - 1)...(block.end - 1) {
-                // Covered wins when blocks overlap a line.
-                file.lines[line] = (file.lines[line] ?? false) || block.count > 0
+        for (path, lines) in delegate.files {
+            var file = FileCoverage()
+            for (line, count) in lines {
+                file.lines[line - 1] = count > 0
+                file.statements += 1
+                if count > 0 { file.coveredStatements += 1 }
             }
-            report.files[path] = file
+            report.files[normalize(path)] = file
         }
         return report
+    }
+}
+
+private final class CloverParser: NSObject, XMLParserDelegate {
+    var files: [String: [Int: Int]] = [:]
+    private var current: String?
+
+    func parser(_ parser: XMLParser, didStartElement element: String, namespaceURI: String?,
+                qualifiedName: String?, attributes: [String: String] = [:]) {
+        switch element {
+        case "file":
+            current = attributes["name"]
+            if let current, files[current] == nil { files[current] = [:] }
+        case "line":
+            // Statement lines carry coverage; "method" lines just mark declarations.
+            guard let current, attributes["type"] == "stmt",
+                  let num = attributes["num"].flatMap(Int.init), let count = attributes["count"].flatMap(Int.init) else { return }
+            let previous = files[current]?[num] ?? 0
+            files[current, default: [:]][num] = max(previous, count)
+        default:
+            break
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement element: String, namespaceURI: String?, qualifiedName: String?) {
+        if element == "file" { current = nil }
     }
 }

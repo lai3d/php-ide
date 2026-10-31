@@ -844,3 +844,29 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceCoverageTests {
+    @Test(.enabled(if: WorkspacePHPUnitTests.project != nil), .timeLimit(.minutes(1)))
+    func measuresLineCoverageWithXdebug() async throws {
+        let dir = URL(fileURLWithPath: try #require(WorkspacePHPUnitTests.project)).canonicalFileURL
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let xdebug = await workspace.refreshXdebugStatus()
+        try #require(xdebug.isAvailable, "needs Xdebug")
+
+        workspace.runTestsWithCoverage()
+        for _ in 0..<400 where workspace.isRunning || !workspace.output.contains(" skipped — exit ") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let coverage = try #require(workspace.coverage, "\(workspace.output)")
+        let greeter = try #require(coverage.files[Workspace.key(for: dir.appendingPathComponent("src/Greeter.php"))])
+        #expect(greeter.percent == 100)
+        #expect(coverage.files[Workspace.key(for: dir.appendingPathComponent("src/Broken.php"))]?.percent == 0)
+        #expect(workspace.testReport.failed >= 1)  // tests still reported alongside coverage
+
+        let document = try #require(workspace.openFile(dir.appendingPathComponent("src/Greeter.php")))
+        #expect(workspace.coverageLines(for: document).values.allSatisfy { $0 })
+        await workspace.shutdown()
+    }
+}

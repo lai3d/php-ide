@@ -18,6 +18,15 @@ public enum XdebugStatus: Sendable, Equatable {
     }
 
     public var isAvailable: Bool { self != .missing }
+
+    /// `php` flags for code coverage (`xdebug.mode=coverage`) for one run.
+    public var coverageArguments: [String] {
+        switch self {
+        case .loaded: ["-dxdebug.mode=coverage"]
+        case .installed(let path): ["-dzend_extension=\(path)", "-dxdebug.mode=coverage"]
+        case .missing: []
+        }
+    }
 }
 
 public enum Xdebug {

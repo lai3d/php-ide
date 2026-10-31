@@ -1713,17 +1713,30 @@ final class Workspace {
                                                 className: PHPTestFinder.className(in: text), method: name)
             testRunTitle = name
         }
+        // Coverage: run the runner through php with Xdebug in coverage mode, writing a Clover report.
+        var executable = runner
+        var commandLine = arguments
+        let report = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-clover-\(UUID().uuidString).xml")
+        if measure {
+            guard let php = ToolLocator.find("php"), let xdebug = xdebugStatus, xdebug.isAvailable else {
+                output = "Coverage needs Xdebug. Use PHP ▸ Install Xdebug (runs \(Xdebug.installHint)).\n"
+                bottomTab = .output
+                return
+            }
+            executable = php
+            commandLine = xdebug.coverageArguments + [runner.path] + arguments
+                + PHPTestRunner.coverageArguments(root: rootURL, report: report.path)
+        }
         testReport = TestReport()
         selectedTestID = nil
-        let shown = arguments.map { $0.contains(" ") || $0.contains("(") ? "'\($0)'" : $0 }.joined(separator: " ")
-        output = "$ \(displayPath(Self.key(for: runner))) \(shown)\n"
-        if measure { output += "(Coverage isn't wired up yet — ROADMAP 2.5. Running without it.)\n" }
+        let shown = commandLine.map { $0.contains(" ") || $0.contains("(") ? "'\($0)'" : $0 }.joined(separator: " ")
+        output = "$ \(measure ? "php" : displayPath(Self.key(for: runner))) \(shown)\n"
         bottomTab = .tests
         isRunning = true
 
         let process = Process()
-        process.executableURL = runner
-        process.arguments = arguments
+        process.executableURL = executable
+        process.arguments = commandLine
         process.currentDirectoryURL = rootURL
         process.environment = ToolLocator.environment()
         let pipe = Pipe()
@@ -1744,6 +1757,7 @@ final class Workspace {
                 self.isRunning = false
                 self.runProcess = nil
                 self.testReport.finish()
+                if measure { self.loadCoverage(report) }
                 let r = self.testReport
                 self.appendOutput("\n[\(r.passed) passed, \(r.failed) failed, \(r.skipped) skipped — exit \(status)]\n")
                 if r.tests.isEmpty { self.bottomTab = .output }  // didn't get to run tests: show why
@@ -1758,6 +1772,16 @@ final class Workspace {
             isRunning = false
             appendOutput("Failed to start \(runner.lastPathComponent): \(error.localizedDescription)\n")
         }
+    }
+
+    private func loadCoverage(_ report: URL) {
+        defer { try? FileManager.default.removeItem(at: report) }
+        guard let data = try? Data(contentsOf: report) else {
+            appendOutput("\n(No coverage report was written.)\n")
+            return
+        }
+        coverage = CoverageReport.parseClover(data) { Self.key(for: URL(fileURLWithPath: $0)) }
+        showCoverage = true
     }
 
     func clearCoverage() {

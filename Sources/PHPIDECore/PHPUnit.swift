@@ -242,6 +242,18 @@ public enum PHPTestRunner {
         return find("phpunit")
     }
 
+    /// `--coverage-clover <report>`, plus a source filter when there's no phpunit.xml (PHPUnit then has none).
+    public static func coverageArguments(root: URL, report: String) -> [String] {
+        let configs = ["phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml"]
+        var args = ["--coverage-clover", report]
+        if !configs.contains(where: { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }) {
+            for dir in ["src", "app", "lib"] where FileManager.default.fileExists(atPath: root.appendingPathComponent(dir).path) {
+                args += ["--coverage-filter", dir]
+            }
+        }
+        return args
+    }
+
     /// Arguments for `--teamcity` runs: everything, one file, or one test method (all its data sets).
     public static func arguments(root: URL, file: String? = nil, className: String? = nil, method: String? = nil) -> [String] {
         var args = ["--teamcity"]

@@ -3,23 +3,37 @@ import Testing
 @testable import PHPIDECore
 
 @Suite struct CoverageTests {
-    @Test func parsesProfiles() throws {
-        #expect(CoverageReport.modulePath(goMod: "// c\nmodule example.com/app\n\ngo 1.22\n") == "example.com/app")
-        let profile = """
-            mode: set
-            example.com/app/calc.go:3.24,5.2 1 1
-            example.com/app/calc.go:7.24,8.13 1 1
-            example.com/app/calc.go:8.13,10.3 1 0
-            example.com/app/calc.go:11.2,11.10 1 1
-            example.com/app/sub/x.go:3.13,3.15 0 0
-            other.org/lib/y.go:1.1,2.2 1 1
-            """
-        let report = CoverageReport.parse(profile, modulePath: "example.com/app", root: "/r")
-        let calc = try #require(report.files["/r/calc.go"])
-        #expect(calc.statements == 4 && calc.coveredStatements == 3 && calc.percent == 75)
-        #expect(calc.lines[2] == true && calc.lines[8] == false && calc.lines[7] == true)  // line 8 shared: covered wins
-        #expect(report.files["/r/sub/x.go"] != nil)
-        #expect(report.files.keys.allSatisfy { $0.hasPrefix("/r/") })  // other modules skipped
-        #expect(report.percent == 75)
+    static let clover = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <coverage generated="1793485055">
+          <project timestamp="1793485055" name="Clover Coverage">
+            <file name="/p/src/Broken.php">
+              <line num="10" type="stmt" count="0"/>
+              <metrics loc="12" ncloc="11" statements="1" coveredstatements="0"/>
+            </file>
+            <package name="Hello">
+              <file name="/p/src/Greeter.php">
+                <class name="Hello\\Greeter" namespace="Hello"><metrics statements="3" coveredstatements="2"/></class>
+                <line num="9" type="method" name="__construct" visibility="public" complexity="1" crap="1" count="1"/>
+                <line num="13" type="stmt" count="4"/>
+                <line num="14" type="stmt" count="0"/>
+                <line num="15" type="stmt" count="1"/>
+              </file>
+            </package>
+          </project>
+        </coverage>
+        """
+
+    @Test func parsesCloverReports() throws {
+        let report = CoverageReport.parseClover(Data(Self.clover.utf8)) { "/real" + $0 }
+        let greeter = try #require(report.files["/real/p/src/Greeter.php"])
+        #expect(greeter.statements == 3 && greeter.coveredStatements == 2)
+        #expect(greeter.lines == [12: true, 13: false, 14: true])  // zero-based; the method line isn't a statement
+        #expect(report.files["/real/p/src/Broken.php"]?.percent == 0)
+        #expect(Int(report.percent) == 50)  // 2 of 4 statements
+    }
+
+    @Test func toleratesBrokenXML() {
+        #expect(CoverageReport.parseClover(Data("<coverage><file name=\"/a.php\"><line num=".utf8)).files.count <= 1)
     }
 }
