@@ -174,6 +174,11 @@ final class Workspace {
         didSet { if activeDocument !== oldValue { saveSession() } }
     }
     private(set) var diagnostics: [String: [Diagnostic]] = [:]  // keyed by normalized path
+    /// Problems from command-line tools (php -l, PHPStan, Psalm), keyed like `diagnostics`.
+    /// A file's entries are dropped as soon as it is edited (re-run the tool to refresh).
+    private(set) var toolDiagnostics: [String: [Diagnostic]] = [:]
+    /// A syntax check / analysis is running (toolbar spinner, disables re-runs).
+    private(set) var isAnalyzing = false
     private(set) var lspStatus = "Language server: not started"
     /// Which server is running (intelephense / phpactor), for status messages.
     private(set) var lspName = "Language server"
@@ -301,7 +306,8 @@ final class Workspace {
     var dirtyDocuments: [Document] { documents.filter(\.isDirty) }
 
     func diagnostics(for document: Document) -> [Diagnostic] {
-        diagnostics[Self.key(for: document.url)] ?? []
+        let key = Self.key(for: document.url)
+        return (diagnostics[key] ?? []) + (toolDiagnostics[key] ?? [])
     }
 
     /// Path relative to the project root (or the full path outside it).
@@ -312,8 +318,8 @@ final class Workspace {
     }
 
     var allProblems: [ProblemItem] {
-        diagnostics.keys.sorted().flatMap { path in
-            diagnostics[path, default: []].map { ProblemItem(path: path, diagnostic: $0) }
+        Set(diagnostics.keys).union(toolDiagnostics.keys).sorted().flatMap { path in
+            (diagnostics[path, default: []] + toolDiagnostics[path, default: []]).map { ProblemItem(path: path, diagnostic: $0) }
         }
     }
 
@@ -785,6 +791,7 @@ final class Workspace {
         document.text = newText
         document.isDirty = true
         document.version += 1
+        toolDiagnostics.removeValue(forKey: Self.key(for: document.url))
         sendDidChange(document)
     }
 
@@ -2010,6 +2017,40 @@ final class Workspace {
             isRunning = false
             appendOutput("Failed to start \(tool): \(error.localizedDescription)\n")
         }
+    }
+
+    // MARK: - Syntax check & static analysis
+
+    /// Replaces the tool problems that came from `source` with `found` (paths are normalized).
+    func setToolDiagnostics(from source: String, _ found: [String: [Diagnostic]]) {
+        for (key, list) in toolDiagnostics {
+            let kept = list.filter { $0.source != source }
+            toolDiagnostics[key] = kept.isEmpty ? nil : kept
+        }
+        for (path, list) in found {
+            toolDiagnostics[Self.key(for: URL(fileURLWithPath: path)), default: []].append(contentsOf: list)
+        }
+    }
+
+    /// ⌘B: `php -l` on every PHP file in the project; parse errors go to Problems.
+    func checkSyntax() async {
+        guard let rootURL, !isAnalyzing else { return }
+        guard let php = ToolLocator.find("php") else {
+            output = "php not found. Install it: \(Self.installHints["php"]!), or set its path in Settings ▸ Tools.\n"
+            bottomTab = .output
+            return
+        }
+        saveAll()
+        isAnalyzing = true
+        defer { isAnalyzing = false }
+        let files = ProjectSearch.files(under: rootURL).filter { PHPLanguageServer.isPHPFile(URL(fileURLWithPath: $0)) }
+        let started = Date()
+        let found = await PHPLint.lint(files: files, php: php)
+        setToolDiagnostics(from: PHPLint.source, found)
+        let errors = found.values.reduce(0) { $0 + $1.count }
+        flashStatus(String(format: "Syntax check: %d file%@, %d error%@ (%.1fs)", files.count, files.count == 1 ? "" : "s",
+                           errors, errors == 1 ? "" : "s", Date().timeIntervalSince(started)))
+        if errors > 0 { bottomTab = .problems }
     }
 
     func stopRun() {

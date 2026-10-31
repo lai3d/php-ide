@@ -369,3 +369,30 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceSyntaxCheckTests {
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func reportsParseErrorsUntilTheFileIsEdited() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-lintws-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try "<?php\necho 1;\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "<?php\n\nif (true {\n".write(to: dir.appendingPathComponent("broken.php"), atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        await workspace.checkSyntax()
+        let lint = workspace.allProblems.filter { $0.diagnostic.source == "php -l" }
+        #expect(lint.map(\.fileName) == ["broken.php"])
+        #expect(lint.first?.diagnostic.start.line == 2)
+        #expect(workspace.bottomTab == .problems)
+
+        let broken = try #require(workspace.openFile(dir.appendingPathComponent("broken.php")))
+        #expect(workspace.diagnostics(for: broken).contains { $0.source == "php -l" })
+        workspace.updateText(of: broken, to: "<?php\n\nif (true) {}\n")
+        #expect(!workspace.diagnostics(for: broken).contains { $0.source == "php -l" })
+        await workspace.shutdown()
+    }
+}

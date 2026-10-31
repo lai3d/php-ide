@@ -25,7 +25,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.2 | ✅ PHP highlighter | Hand-written lexer (`PHPHighlighter`): `<?php`/`?>` + inline HTML, heredoc/nowdoc, `$variables`, interpolation, attributes `#[...]`, PHPDoc tags, casts, `match`/`enum`/`readonly` | 0.5h |
 | 1.3 | ✅ Run script | Run configurations point at a PHP script (root `*.php`, `public/index.php`, `bin/*`, `artisan`); ⌘R runs `php <script> <args>`; toolbar/menu wording de-Go'd ("PHP" menu, "No script") | 0.3h |
 | 1.3a | ✅ Clickable PHP output | `file.php:12`, `file.php(12)` and `… in /x/file.php on line 12` links in Output / Tests | 0.1h |
-| 1.3b | ⬜ Syntax check (⌘B) | `php -l` over every project PHP file; parse errors land in Problems (merged with LSP diagnostics) | 0.2h |
+| 1.3b | ✅ Syntax check (⌘B) | `php -l` over every project PHP file; parse errors land in Problems (merged with LSP diagnostics) | 0.2h |
 | 1.3c | ⬜ Static analysis | PHPStan (`vendor/bin/phpstan analyse --error-format=json`) or Psalm (`--output-format=json`) if installed → Problems | 0.3h |
 | 1.3d | ⬜ Composer commands | PHP menu: composer install / update / dump-autoload / validate replace the go vet / generate / mod items | 0.1h |
 | 1.4 | ⬜ Tests | PHPUnit (`vendor/bin/phpunit --log-junit`) / Pest: gutter ▶ / ✓ / ✗ per `test*` method and `#[Test]`, run at cursor / file / all | 0.8h |

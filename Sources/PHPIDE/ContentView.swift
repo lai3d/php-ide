@@ -29,10 +29,11 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button { workspace.runGo(["build", "./..."]) } label: {
-                    Label("Build", systemImage: "hammer")
+                Button { Task { await workspace.checkSyntax() } } label: {
+                    Label("Check Syntax", systemImage: "checkmark.seal")
                 }
-                .help("go build ./... (⌘B)")
+                .help("Check syntax: php -l on every project file (⌘B)")
+                .disabled(workspace.rootURL == nil || workspace.isAnalyzing)
                 Button { workspace.runTests(.all) } label: {
                     Label("Test", systemImage: "checkmark.diamond")
                 }
@@ -590,7 +591,7 @@ struct OutputView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if workspace.output.isEmpty {
-                        Text("No output yet. Use Build (⌘B), Test (⌘U) or Run (⌘R).").foregroundStyle(.secondary)
+                        Text("No output yet. Use Run (⌘R) or Test (⌘U).").foregroundStyle(.secondary)
                     }
                     // Line by line, so `file.php:12` / `… on line 12` references from php, PHPUnit, PHPStan are clickable.
                     ForEach(Array(workspace.output.split(separator: "\n", omittingEmptySubsequences: false).enumerated()),
