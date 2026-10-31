@@ -8,31 +8,44 @@ on:
 jobs:
   build-and-test:
     runs-on: macos-15
+    env:
+      PHP_DEBUG_VERSION: "1.40.2"
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # version number from git describe
 
-      - uses: actions/setup-go@v7
+      - name: PHP with Xdebug and Composer
+        uses: shivammathur/setup-php@v2
         with:
-          go-version: stable
-          cache: false  # no go.sum here; nothing to cache
+          php-version: "8.4"
+          coverage: xdebug
+          tools: composer
 
-      - name: Install gopls and Delve
+      - name: Intelephense
+        run: npm install -g intelephense
+
+      - name: Debug adapter (vscode-php-debug)
         run: |
-          go install golang.org/x/tools/gopls@latest
-          go install github.com/go-delve/delve/cmd/dlv@latest
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          curl -sSL -o "$RUNNER_TEMP/php-debug.vsix" \
+            "https://github.com/xdebug/vscode-php-debug/releases/download/v$PHP_DEBUG_VERSION/php-debug-$PHP_DEBUG_VERSION.vsix"
+          unzip -q "$RUNNER_TEMP/php-debug.vsix" -d "$RUNNER_TEMP/php-debug"
+          echo "PHPIDE_PHP_DEBUG_JS=$RUNNER_TEMP/php-debug/extension/out/phpDebug.js" >> "$GITHUB_ENV"
+          echo "PHPIDE_PHP_DEBUG_VSIX=$RUNNER_TEMP/php-debug.vsix" >> "$GITHUB_ENV"
 
-      - name: Allow debugging (Delve)
-        run: sudo DevToolsSecurity -enable || true
+      - name: Fixture project (PHPUnit, PHPStan)
+        run: |
+          composer install --no-interaction --no-progress --working-dir Tests/Fixtures/php-project
+          echo "PHPIDE_PHPUNIT_PROJECT=$GITHUB_WORKSPACE/Tests/Fixtures/php-project" >> "$GITHUB_ENV"
+          echo "PHPIDE_PHPSTAN_PROJECT=$GITHUB_WORKSPACE/Tests/Fixtures/php-project" >> "$GITHUB_ENV"
 
       - name: Toolchain
         run: |
           swift --version
-          go version
-          gopls version
-          dlv version
+          php -v
+          composer --version
+          node --version
+          which intelephense
 
       - name: Build
         run: swift build
