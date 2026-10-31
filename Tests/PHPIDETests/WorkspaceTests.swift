@@ -590,3 +590,23 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceComposerScriptTests {
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("composer") != nil), .timeLimit(.minutes(1)))
+    func listsAndRunsComposerScripts() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-cscripts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try #"{"name": "t/t", "scripts": {"hello": "@php -r \"echo 'hi from composer';\""}}"#
+            .write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        #expect(workspace.composerScripts == ["hello"])
+        workspace.runTool("composer", ["run-script", "hello"])
+        for _ in 0..<200 where workspace.isRunning || !workspace.output.contains("exited") { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(workspace.output.contains("hi from composer"))
+        await workspace.shutdown()
+    }
+}

@@ -291,6 +291,14 @@ struct PHPIDECommands: Commands {
                     Button("Dump Autoload (composer dump-autoload)") { workspace.runTool("composer", ["dump-autoload"]) }
                     Button("Validate (composer validate)") { workspace.runTool("composer", ["validate", "--no-interaction"]) }
                     Button("Outdated (composer outdated --direct)") { workspace.runTool("composer", ["outdated", "--direct"]) }
+                    if !workspace.composerScripts.isEmpty {
+                        Divider()
+                        Section("Scripts") {
+                            ForEach(workspace.composerScripts, id: \.self) { name in
+                                Button(name) { workspace.runTool("composer", ["run-script", name]) }
+                            }
+                        }
+                    }
                 }
                 .disabled(workspace.rootURL == nil)
                 Divider()

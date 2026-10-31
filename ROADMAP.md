@@ -37,7 +37,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.5c | ✅ Debug test at cursor | PHPUnit under Xdebug with `--filter` for the method at the caret | 0.2h |
 | 1.5d | ✅ Listen for Xdebug | "Start Listening" (port 9003) to debug web requests / CLI runs started elsewhere | 0.2h |
 | 1.6 | ✅ Built-in web server | "Web server" configurations: `php -S 127.0.0.1:<port> -t <docroot> [router]`, auto-added for `public/index.php`; Open in Browser; debugging serves with Xdebug | 0.4h |
-| 1.6a | ⬜ Composer scripts | `scripts` from composer.json in the PHP ▸ Composer menu, run with `composer run-script` | 0.2h |
+| 1.6a | ✅ Composer scripts | `scripts` from composer.json in the PHP ▸ Composer menu, run with `composer run-script` | 0.2h |
 | 1.7 | ⬜ Snippets & settings | PHP snippets (`fn`, `class`, `foreach`, `pubf`, `ctor`, …); php / node / intelephense / licence-key path overrides | 0.4h |
 | 1.8 | ⬜ CI & release | PHP + Intelephense in GitHub Actions, tagged `PHPIDE-vX.Y.Z.zip`, app icon, IDE Toolbox catalog entry | 0.5h |
 

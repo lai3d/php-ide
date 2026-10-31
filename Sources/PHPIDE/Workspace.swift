@@ -280,6 +280,8 @@ final class Workspace {
     }
     /// Runnable PHP scripts in the project (relative paths), for run configurations.
     private(set) var scripts: [String] = []
+    /// `scripts` from composer.json, for PHP ▸ Composer.
+    private(set) var composerScripts: [String] = []
     var isEditingRunConfigurations = false
 
     var selectedRunConfiguration: RunConfiguration? {
@@ -399,6 +401,7 @@ final class Workspace {
     func loadRunConfigurations() {
         guard let rootURL else { return }
         scripts = PHPScripts.entryPoints(under: rootURL)
+        composerScripts = Composer.scripts(in: rootURL)
         loadingRunConfigurations = true
         defer { loadingRunConfigurations = false }
         if let saved = SessionStore.runConfigurations(for: rootURL), !saved.configs.isEmpty {
@@ -416,6 +419,7 @@ final class Workspace {
     func refreshScripts() {
         guard let rootURL else { return }
         scripts = PHPScripts.entryPoints(under: rootURL)
+        composerScripts = Composer.scripts(in: rootURL)
     }
 
     private func saveRunConfigurations() {
@@ -503,6 +507,7 @@ final class Workspace {
         guard !relevant.isEmpty else { return }
         reloadTree()
         notifyWatchedFiles(relevant)
+        if relevant.contains(where: { $0.hasSuffix("/composer.json") }) { refreshScripts() }
         for document in documents { syncWithDisk(document) }
         refreshGit()
     }
