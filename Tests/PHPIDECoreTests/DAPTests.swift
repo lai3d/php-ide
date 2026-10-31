@@ -86,9 +86,15 @@ import Testing
         #expect(entries.map(\.name) == ["x", "y"] && entries.map(\.value) == ["3", "4"])
 
         let evaluated = try await client.request("evaluate", arguments: [
-            "expression": "$point['x'] * 10", "frameId": .int(frames[0].id), "context": "watch",
+            "expression": "$point['x'] * 10", "frameId": .int(frames[0].id),
+            "context": .string(PHPDebugAdapter.evaluateContext(forWatch: "$point['x'] * 10")),
         ])
         #expect(evaluated["result"]?.stringValue == "30")
+        let watched = try await client.request("evaluate", arguments: [
+            "expression": "$point['y']", "frameId": .int(frames[0].id),
+            "context": .string(PHPDebugAdapter.evaluateContext(forWatch: "$point['y']")),
+        ])
+        #expect(watched["result"]?.stringValue == "4")
 
         _ = try await client.request("next", arguments: ["threadId": .int(threadID)])
         _ = try #require(await firstStop(session.events), "ran to the end instead of stopping after the step")
@@ -144,6 +150,10 @@ import Testing
         #expect(args["runtimeArgs"]?.arrayValue?.first?.stringValue == "-dzend_extension=/e/xdebug.so")
         #expect(args["runtimeArgs"]?.arrayValue?.last?.stringValue == "-dxdebug.client_port=${port}")
         #expect(args["args"]?[0]?.stringValue == "a b" && args["env"]?["K"]?.stringValue == "V")
+        #expect(PHPDebugAdapter.evaluateContext(forWatch: "$user->profile['name']") == "watch")
+        #expect(PHPDebugAdapter.evaluateContext(forWatch: " $items[0] ") == "watch")
+        #expect(PHPDebugAdapter.evaluateContext(forWatch: "$a['x'] * 10") == "repl")
+        #expect(PHPDebugAdapter.evaluateContext(forWatch: "count($items)") == "repl")
         let listen = PHPDebugAdapter.listenArguments(port: 9003)
         #expect(listen["program"] == nil && listen["port"]?.intValue == 9003)
     }

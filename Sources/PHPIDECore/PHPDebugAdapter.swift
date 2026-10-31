@@ -86,4 +86,12 @@ public enum PHPDebugAdapter {
     public static func listenArguments(port: Int = 9003) -> JSONValue {
         ["request": "launch", "port": .int(port), "stopOnEntry": false]
     }
+
+    /// The `evaluate` context for a watch expression. vscode-php-debug answers `watch` with Xdebug's
+    /// property_get first, which reads `$a['x'] * 10` as just `$a['x']`; anything beyond a plain
+    /// variable path therefore goes through `repl` (a real eval).
+    public static func evaluateContext(forWatch expression: String) -> String {
+        let path = #"^\$[A-Za-z_]\w*(?:->[A-Za-z_]\w*|\[(?:'[^']*'|"[^"]*"|\d+)\])*$"#
+        return expression.trimmingCharacters(in: .whitespaces).range(of: path, options: .regularExpression) != nil ? "watch" : "repl"
+    }
 }

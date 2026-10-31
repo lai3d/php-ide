@@ -129,7 +129,7 @@ final class DebugSession {
 
     private func refreshWatches() async {
         for expression in watches {
-            watchValues[expression] = await evaluate(expression, context: "watch") ?? "—"
+            watchValues[expression] = await evaluate(expression, context: PHPDebugAdapter.evaluateContext(forWatch: expression)) ?? "—"
         }
     }
 
