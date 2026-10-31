@@ -166,8 +166,9 @@ enum Snapshot {
                 workspace.commitMessage = "Refine order summary"
                 try? await Task.sleep(for: .milliseconds(500))
             }
-            if let command = value("--snapshot-go"), let workspace {
-                workspace.runGo(command.split(separator: " ").map(String.init))
+            if let command = value("--snapshot-run"), let workspace {
+                let words = command.split(separator: " ").map(String.init)  // "composer validate", "php index.php"
+                workspace.runTool(words[0], Array(words.dropFirst()))
                 for _ in 0..<100 where workspace.isRunning { try? await Task.sleep(for: .milliseconds(100)) }
                 try? await Task.sleep(for: .milliseconds(300))
             }

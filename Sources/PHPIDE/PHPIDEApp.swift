@@ -279,14 +279,12 @@ struct PHPIDECommands: Commands {
                 Button("Terminal") { workspace.showTerminal() }
                     .keyboardShortcut("`", modifiers: .control)
                 Divider()
-                Button("Vet (go vet ./...)") { workspace.runGo(["vet", "./..."]) }
-                    .keyboardShortcut("v", modifiers: [.control, .option, .command])
-                Button("Generate (go generate ./...)") { workspace.runGo(["generate", "./..."]) }
-                Menu("Modules") {
-                    Button("Tidy (go mod tidy)") { workspace.runGo(["mod", "tidy"]) }
-                    Button("Update Dependencies (go get -u ./...)") { workspace.runGo(["get", "-u", "./..."]) }
-                    Button("Download (go mod download)") { workspace.runGo(["mod", "download"]) }
-                    Button("Verify (go mod verify)") { workspace.runGo(["mod", "verify"]) }
+                Menu("Composer") {
+                    Button("Install (composer install)") { workspace.runTool("composer", ["install", "--no-interaction"]) }
+                    Button("Update (composer update)") { workspace.runTool("composer", ["update", "--no-interaction"]) }
+                    Button("Dump Autoload (composer dump-autoload)") { workspace.runTool("composer", ["dump-autoload"]) }
+                    Button("Validate (composer validate)") { workspace.runTool("composer", ["validate", "--no-interaction"]) }
+                    Button("Outdated (composer outdated --direct)") { workspace.runTool("composer", ["outdated", "--direct"]) }
                 }
                 .disabled(workspace.rootURL == nil)
                 Divider()
