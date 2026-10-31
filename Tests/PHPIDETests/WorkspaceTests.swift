@@ -339,3 +339,33 @@ import PHPIDECore
         #expect(workspace.searchMatchCount == 0)
     }
 }
+
+@MainActor
+@Suite struct WorkspaceRunTests {
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func runsTheSelectedScriptWithArgumentsAndEnvironment() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try "<?php\necho 'index';\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "#!/usr/bin/env php\n<?php\necho 'hi ', $argv[1], ' ', getenv('GREETING'), PHP_EOL;\n"
+            .write(to: dir.appendingPathComponent("bin/greet"), atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        #expect(workspace.runConfigurations.map(\.script) == ["index.php", "bin/greet"])
+        workspace.runConfigurations[1].arguments = "\"big world\""
+        workspace.runConfigurations[1].environment = "GREETING=hello"
+        workspace.selectedRunConfigurationID = workspace.runConfigurations[1].id
+
+        workspace.runSelectedConfiguration()
+        for _ in 0..<100 where workspace.isRunning || !workspace.output.contains("exited") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(workspace.output.hasPrefix("$ GREETING=… php bin/greet \"big world\"\n"))
+        #expect(workspace.output.contains("hi big world hello"))
+        #expect(workspace.output.contains("[process exited with status 0]"))
+        await workspace.shutdown()
+    }
+}

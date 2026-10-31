@@ -251,9 +251,12 @@ struct PHPIDECommands: Commands {
                 .keyboardShortcut("d", modifiers: [.option, .command])
                 .disabled(workspace.activeDocument.map { workspace.gitBase(for: $0) == nil } ?? true)
             }
-            CommandMenu("Go") {
+            CommandMenu("PHP") {
                 Button("Run") { workspace.runSelectedConfiguration() }
                     .keyboardShortcut("r")
+                Button("Run Current File") { workspace.runActiveFile() }
+                    .keyboardShortcut("r", modifiers: [.control, .shift])
+                    .disabled(!workspace.isPHPFile)
                 Button("Edit Run Configurations…") { workspace.isEditingRunConfigurations = true }
                     .disabled(workspace.rootURL == nil)
                 Button("Build") { workspace.runGo(["build", "./..."]) }

@@ -1,19 +1,19 @@
 import Foundation
 
-/// How to run/debug a main package: which one, with what arguments and environment.
+/// How to run/debug a PHP script: which one, with what arguments and environment.
 public struct RunConfiguration: Codable, Sendable, Hashable, Identifiable {
     public var id = UUID()
     public var name: String
-    /// Package directory relative to the project root ("." for the root).
-    public var package: String
+    /// Script path relative to the project root, e.g. "index.php" or "bin/console".
+    public var script: String
     /// Program arguments, shell-style (quotes group words).
     public var arguments: String
     /// Extra environment, one `KEY=value` per line.
     public var environment: String
 
-    public init(name: String, package: String, arguments: String = "", environment: String = "") {
+    public init(name: String, script: String, arguments: String = "", environment: String = "") {
         self.name = name
-        self.package = package
+        self.script = script
         self.arguments = arguments
         self.environment = environment
     }
@@ -29,9 +29,6 @@ public struct RunConfiguration: Codable, Sendable, Hashable, Identifiable {
         }
         return result
     }
-
-    /// `go run` / `dlv` package pattern: "./cmd/server" or ".".
-    public var packagePattern: String { package == "." || package.isEmpty ? "." : "./" + package }
 }
 
 public enum ShellWords {
@@ -66,19 +63,36 @@ public enum ShellWords {
     }
 }
 
-public enum GoPackages {
-    /// Directories (relative to `root`, "." for the root) whose non-test files declare `package main`.
-    public static func mainPackages(under root: URL) -> [String] {
+public enum PHPScripts {
+    /// Runnable entry points under `root` (relative paths): PHP files in the root, `public/index.php`,
+    /// everything in `bin/`, and root files with a `#!…php` shebang (e.g. Laravel's `artisan`).
+    public static func entryPoints(under root: URL) -> [String] {
         let rootPath = root.canonicalFileURL.path
-        var found = Set<String>()
-        for path in ProjectSearch.files(under: root) where path.hasSuffix(".go") && !path.hasSuffix("_test.go") {
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8),
-                  text.split(separator: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == "package main" })
-            else { continue }
-            let dir = (path as NSString).deletingLastPathComponent
-            let relative = dir == rootPath ? "." : String(dir.dropFirst(rootPath.count + 1))
-            found.insert(relative)
+        var found: [String] = []
+        for path in ProjectSearch.files(under: root) {
+            guard path.hasPrefix(rootPath + "/") else { continue }
+            let relative = String(path.dropFirst(rootPath.count + 1))
+            let parts = relative.split(separator: "/")
+            let isPHP = relative.hasSuffix(".php")
+            if parts.count == 1, isPHP || hasPHPShebang(path) {
+                found.append(relative)
+            } else if relative == "public/index.php" || (parts.count == 2 && parts[0] == "bin" && (isPHP || hasPHPShebang(path))) {
+                found.append(relative)
+            }
         }
-        return found.sorted { $0 == "." || ($1 != "." && $0.localizedStandardCompare($1) == .orderedAscending) }
+        let preferred = ["index.php", "main.php", "public/index.php", "artisan", "bin/console"]
+        return found.sorted { a, b in
+            let (ia, ib) = (preferred.firstIndex(of: a) ?? .max, preferred.firstIndex(of: b) ?? .max)
+            if ia != ib { return ia < ib }
+            let (da, db) = (a.split(separator: "/").count, b.split(separator: "/").count)
+            return da != db ? da < db : a.localizedStandardCompare(b) == .orderedAscending
+        }
+    }
+
+    static func hasPHPShebang(_ path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+        let head = String(decoding: (try? handle.read(upToCount: 64)) ?? Data(), as: UTF8.self)
+        return head.hasPrefix("#!") && head.prefix(while: { $0 != "\n" }).contains("php")
     }
 }

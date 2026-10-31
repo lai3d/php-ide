@@ -271,7 +271,8 @@ final class Workspace {
     var selectedRunConfigurationID: UUID? {
         didSet { saveRunConfigurations() }
     }
-    private(set) var mainPackages: [String] = []
+    /// Runnable PHP scripts in the project (relative paths), for run configurations.
+    private(set) var scripts: [String] = []
     var isEditingRunConfigurations = false
 
     var selectedRunConfiguration: RunConfiguration? {
@@ -385,26 +386,24 @@ final class Workspace {
 
     @ObservationIgnored private var loadingRunConfigurations = false
 
-    /// Saved configurations for this folder, or one per main package found.
+    /// Saved configurations for this folder, or one per entry-point script found.
     func loadRunConfigurations() {
         guard let rootURL else { return }
-        mainPackages = GoPackages.mainPackages(under: rootURL)
+        scripts = PHPScripts.entryPoints(under: rootURL)
         loadingRunConfigurations = true
         defer { loadingRunConfigurations = false }
         if let saved = SessionStore.runConfigurations(for: rootURL), !saved.configs.isEmpty {
             runConfigurations = saved.configs
             selectedRunConfigurationID = saved.selected ?? saved.configs.first?.id
         } else {
-            runConfigurations = mainPackages.map {
-                RunConfiguration(name: $0 == "." ? rootURL.lastPathComponent : ($0 as NSString).lastPathComponent, package: $0)
-            }
+            runConfigurations = scripts.map { RunConfiguration(name: $0, script: $0) }
             selectedRunConfigurationID = runConfigurations.first?.id
         }
     }
 
-    func refreshMainPackages() {
+    func refreshScripts() {
         guard let rootURL else { return }
-        mainPackages = GoPackages.mainPackages(under: rootURL)
+        scripts = PHPScripts.entryPoints(under: rootURL)
     }
 
     private func saveRunConfigurations() {
@@ -412,10 +411,24 @@ final class Workspace {
         SessionStore.saveRunConfigurations(runConfigurations, selected: selectedRunConfigurationID, for: rootURL)
     }
 
-    /// ⌘R: `go run <package> <args>` with the configuration's environment.
+    /// ⌘R: `php <script> <args>` with the configuration's environment; without one, the active PHP file.
     func runSelectedConfiguration() {
-        guard let config = selectedRunConfiguration else { return runGo(["run", "."]) }
-        runGo(["run", config.packagePattern] + config.argumentList, environment: config.environmentVariables)
+        if let config = selectedRunConfiguration {
+            runTool("php", [config.script] + config.argumentList, environment: config.environmentVariables)
+        } else if let rootURL, let document = activeDocument, document.isPHP {
+            let path = Self.key(for: document.url)
+            let root = Self.key(for: rootURL) + "/"
+            runTool("php", [path.hasPrefix(root) ? String(path.dropFirst(root.count)) : path])
+        } else {
+            output = "Nothing to run: open a PHP file or add a run configuration.\n"
+            bottomTab = .output
+        }
+    }
+
+    /// Runs the active PHP file regardless of the selected configuration.
+    func runActiveFile() {
+        guard let document = activeDocument, document.isPHP else { return }
+        runTool("php", [Self.key(for: document.url)])
     }
 
     // MARK: - Session
@@ -1874,7 +1887,7 @@ final class Workspace {
 
     func debug(configuration config: RunConfiguration) {
         guard let rootURL else { return }
-        let dir = Self.key(for: rootURL.appendingPathComponent(config.package == "." ? "" : config.package))
+        let dir = Self.key(for: rootURL.appendingPathComponent(config.script).deletingLastPathComponent())
         launchDebugger(title: config.name, directory: URL(fileURLWithPath: dir), launch: [
             "request": "launch", "mode": "debug", "program": .string(dir),
             "cwd": .string(Self.key(for: rootURL)), "outputMode": "remote",
@@ -1930,12 +1943,23 @@ final class Workspace {
 
     var isDebugging: Bool { debugSession?.isActive ?? false }
 
-    // MARK: - go run / build / test
+    // MARK: - php / composer / go commands
+
+    /// Install hints for the tools the IDE runs.
+    static let installHints = [
+        "php": "brew install php", "composer": "brew install composer", "go": "https://go.dev/dl/",
+    ]
 
     func runGo(_ arguments: [String], environment extra: [String: String] = [:]) {
+        runTool("go", arguments, environment: extra)
+    }
+
+    /// Runs `tool arguments…` in the project root, streaming into the Output panel.
+    func runTool(_ tool: String, _ arguments: [String], environment extra: [String: String] = [:],
+                 completion: (@MainActor (Int32) -> Void)? = nil) {
         guard let rootURL, !isRunning else { return }
-        guard let go = ToolLocator.find("go") else {
-            output = "go not found. Install Go from https://go.dev/dl/\n"
+        guard let executable = ToolLocator.find(tool) else {
+            output = "\(tool) not found. Install it: \(Self.installHints[tool] ?? tool), or set its path in Settings ▸ Tools.\n"
             bottomTab = .output
             return
         }
@@ -1943,12 +1967,12 @@ final class Workspace {
         let envNote = extra.isEmpty ? "" : extra.keys.sorted().map { "\($0)=… " }.joined()
         // Echo the command shell-style (quote words with spaces) so it reads as it ran.
         let shown = arguments.map { $0.contains(" ") || $0.isEmpty ? "\"\($0)\"" : $0 }.joined(separator: " ")
-        output = "$ \(envNote)go \(shown)\n"
+        output = "$ \(envNote)\(tool) \(shown)\n"
         bottomTab = .output
         isRunning = true
 
         let process = Process()
-        process.executableURL = go
+        process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = rootURL
         process.environment = ToolLocator.environment().merging(extra) { $1 }
@@ -1972,6 +1996,7 @@ final class Workspace {
                 self.isRunning = false
                 self.runProcess = nil
                 self.appendOutput("\n[process exited with status \(status)]\n")
+                completion?(status)
             }
         }
         do {
@@ -1979,7 +2004,7 @@ final class Workspace {
             runProcess = process
         } catch {
             isRunning = false
-            appendOutput("Failed to start go: \(error.localizedDescription)\n")
+            appendOutput("Failed to start \(tool): \(error.localizedDescription)\n")
         }
     }
 

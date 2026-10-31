@@ -9,26 +9,26 @@ import Testing
         #expect(ShellWords.split(#"--flag="" x"#) == ["--flag=", "x"])
     }
 
-    @Test func parsesEnvironmentAndPattern() {
-        let config = RunConfiguration(name: "server", package: "cmd/server", arguments: "-v",
+    @Test func parsesEnvironment() {
+        let config = RunConfiguration(name: "server", script: "bin/server.php", arguments: "-v",
                                       environment: "PORT=8080\n# comment\nDSN=postgres://u@h/db?x=1\n\n")
         #expect(config.environmentVariables == ["PORT": "8080", "DSN": "postgres://u@h/db?x=1"])
-        #expect(config.packagePattern == "./cmd/server")
-        #expect(RunConfiguration(name: "root", package: ".").packagePattern == ".")
     }
 
-    @Test func findsMainPackages() throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-mains-\(UUID().uuidString)")
+    @Test func findsEntryPoints() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-scripts-\(UUID().uuidString)")
         let fm = FileManager.default
-        for dir in ["cmd/server", "cmd/cli", "internal/lib"] {
+        for dir in ["bin", "public", "src", "vendor/x"] {
             try fm.createDirectory(at: base.appendingPathComponent(dir), withIntermediateDirectories: true)
         }
         defer { try? fm.removeItem(at: base) }
-        try "package main\n\nfunc main() {}\n".write(to: base.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        try "package main\nfunc main() {}\n".write(to: base.appendingPathComponent("cmd/server/main.go"), atomically: true, encoding: .utf8)
-        try "package main\nfunc main() {}\n".write(to: base.appendingPathComponent("cmd/cli/cli.go"), atomically: true, encoding: .utf8)
-        try "package lib\n".write(to: base.appendingPathComponent("internal/lib/lib.go"), atomically: true, encoding: .utf8)
-        try "package main\n".write(to: base.appendingPathComponent("internal/lib/x_test.go"), atomically: true, encoding: .utf8)
-        #expect(GoPackages.mainPackages(under: base) == [".", "cmd/cli", "cmd/server"])
+        func write(_ path: String, _ text: String = "<?php\n") throws {
+            try text.write(to: base.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        }
+        try write("worker.php"); try write("index.php"); try write("public/index.php"); try write("src/Lib.php")
+        try write("artisan", "#!/usr/bin/env php\n<?php\n"); try write("README.md", "# hi\n")
+        try write("bin/console", "#!/usr/bin/env php\n<?php\n"); try write("bin/run.sh", "#!/bin/sh\n")
+        try write("vendor/x/index.php")
+        #expect(PHPScripts.entryPoints(under: base) == ["index.php", "public/index.php", "artisan", "bin/console", "worker.php"])
     }
 }

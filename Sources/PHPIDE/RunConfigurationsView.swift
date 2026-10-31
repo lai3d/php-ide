@@ -21,7 +21,7 @@ struct RunConfigurationPicker: View {
             Divider()
             Button("Edit Configurations…") { workspace.isEditingRunConfigurations = true }
         } label: {
-            Label(workspace.selectedRunConfiguration?.name ?? "No main package", systemImage: "terminal")
+            Label(workspace.selectedRunConfiguration?.name ?? "No script", systemImage: "terminal")
                 .labelStyle(.titleAndIcon)
         }
         .help("Run configuration (⌘R runs it, ⌥⌘R debugs it)")
@@ -58,13 +58,16 @@ struct RunConfigurationsSheet: View {
                     if let index = workspace.runConfigurations.firstIndex(where: { $0.id == selection }) {
                         Form {
                             TextField("Name", text: $workspace.runConfigurations[index].name)
-                            Picker("Package", selection: $workspace.runConfigurations[index].package) {
-                                ForEach(packageChoices(including: workspace.runConfigurations[index].package), id: \.self) {
-                                    Text($0 == "." ? ". (project root)" : "./" + $0).tag($0)
+                            Picker("Script", selection: $workspace.runConfigurations[index].script) {
+                                ForEach(scriptChoices(including: workspace.runConfigurations[index].script), id: \.self) {
+                                    Text($0).tag($0)
                                 }
                             }
+                            TextField("Script path", text: $workspace.runConfigurations[index].script,
+                                      prompt: Text("relative to the project root"))
+                                .font(.system(.body, design: .monospaced))
                             TextField("Arguments", text: $workspace.runConfigurations[index].arguments,
-                                      prompt: Text("-port 8080 --name \"my app\""))
+                                      prompt: Text("migrate --force --name \"my app\""))
                                 .font(.system(.body, design: .monospaced))
                             LabeledContent("Environment") {
                                 TextEditor(text: $workspace.runConfigurations[index].environment)
@@ -97,18 +100,18 @@ struct RunConfigurationsSheet: View {
         }
         .frame(width: 720, height: 330)
         .onAppear {
-            workspace.refreshMainPackages()
+            workspace.refreshScripts()
             selection = workspace.selectedRunConfiguration?.id
         }
     }
 
-    private func packageChoices(including current: String) -> [String] {
-        workspace.mainPackages.contains(current) ? workspace.mainPackages : [current] + workspace.mainPackages
+    private func scriptChoices(including current: String) -> [String] {
+        workspace.scripts.contains(current) || current.isEmpty ? workspace.scripts : [current] + workspace.scripts
     }
 
     private func add() {
-        let package = workspace.mainPackages.first ?? "."
-        let config = RunConfiguration(name: "New Configuration", package: package)
+        let script = workspace.scripts.first ?? "index.php"
+        let config = RunConfiguration(name: "New Configuration", script: script)
         workspace.runConfigurations.append(config)
         selection = config.id
     }
