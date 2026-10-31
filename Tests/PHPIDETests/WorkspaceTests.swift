@@ -731,8 +731,13 @@ import PHPIDECore
         ])
         defer { try? FileManager.default.removeItem(at: dir) }
         let main = try #require(workspace.activeDocument)
-        for _ in 0..<50 where workspace.diagnostics(for: main).isEmpty { try await Task.sleep(for: .milliseconds(100)) }
-        let actions = await workspace.codeActions(in: main, at: (main.text as NSString).range(of: "Greeter").location + 1)
+        // "Import class" needs Phpactor's diagnostics and index, which lag on a slow (CI) machine: ask until offered.
+        var actions: [CodeAction] = []
+        for _ in 0..<60 {
+            actions = await workspace.codeActions(in: main, at: (main.text as NSString).range(of: "Greeter").location + 1)
+            if actions.contains(where: { $0.title.localizedCaseInsensitiveContains("import") }) { break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
         let importClass = try #require(actions.first { $0.title.localizedCaseInsensitiveContains("import") }, "\(actions.map(\.title))")
         await workspace.perform(importClass)
         for _ in 0..<50 where !main.text.contains("use App\\Greeter;") { try await Task.sleep(for: .milliseconds(100)) }
