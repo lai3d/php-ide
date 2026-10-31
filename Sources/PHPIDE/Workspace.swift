@@ -406,6 +406,9 @@ final class Workspace {
             selectedRunConfigurationID = saved.selected ?? saved.configs.first?.id
         } else {
             runConfigurations = scripts.map { RunConfiguration(name: $0, script: $0) }
+            if scripts.contains("public/index.php") {
+                runConfigurations.insert(.server(name: "Web server (public)", documentRoot: "public"), at: 0)
+            }
             selectedRunConfigurationID = runConfigurations.first?.id
         }
     }
@@ -423,7 +426,10 @@ final class Workspace {
     /// ⌘R: `php <script> <args>` with the configuration's environment; without one, the active PHP file.
     func runSelectedConfiguration() {
         if let config = selectedRunConfiguration {
-            runTool("php", [config.script] + config.argumentList, environment: config.environmentVariables)
+            runTool("php", config.phpArguments, environment: config.environmentVariables)
+            if let url = config.url, isRunning {
+                appendOutput("Serving \(url.absoluteString) — PHP ▸ Open in Browser, ⌘. to stop\n")
+            }
         } else if let rootURL, let document = activeDocument, document.isPHP {
             let path = Self.key(for: document.url)
             let root = Self.key(for: rootURL) + "/"
@@ -432,6 +438,12 @@ final class Workspace {
             output = "Nothing to run: open a PHP file or add a run configuration.\n"
             bottomTab = .output
         }
+    }
+
+    /// Opens the selected web server configuration's URL.
+    func openInBrowser() {
+        guard let url = selectedRunConfiguration?.url else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Runs the active PHP file regardless of the selected configuration.
@@ -1877,6 +1889,17 @@ final class Workspace {
 
     func debug(configuration config: RunConfiguration) {
         guard let rootURL else { return }
+        if config.kind == .server {
+            let cwd = Self.key(for: rootURL)
+            launchDebugger(title: config.name) { php, xdebug in
+                PHPDebugAdapter.launchArguments(program: nil, cwd: cwd, php: php.path, xdebug: xdebug,
+                                                environment: config.environmentVariables, phpArguments: config.phpArguments)
+            }
+            if let url = config.url {
+                appendOutput("Serving \(url.absoluteString) with Xdebug: every request stops at your breakpoints.\n")
+            }
+            return
+        }
         debug(script: Self.key(for: rootURL.appendingPathComponent(config.script)), arguments: config.argumentList,
               environment: config.environmentVariables, title: config.name)
     }

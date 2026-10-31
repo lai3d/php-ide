@@ -1,21 +1,71 @@
 import Foundation
 
-/// How to run/debug a PHP script: which one, with what arguments and environment.
+/// How to run/debug PHP: a CLI script, or the built-in web server — with arguments and environment.
 public struct RunConfiguration: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable, CaseIterable {
+        case script, server
+    }
+
     public var id = UUID()
     public var name: String
+    public var kind: Kind
     /// Script path relative to the project root, e.g. "index.php" or "bin/console".
+    /// For a web server: the optional router script ("" for none).
     public var script: String
-    /// Program arguments, shell-style (quotes group words).
+    /// Program arguments, shell-style (quotes group words). Unused by the web server.
     public var arguments: String
     /// Extra environment, one `KEY=value` per line.
     public var environment: String
+    /// Web server: document root relative to the project root ("public", "." for the root).
+    public var documentRoot: String
+    /// Web server: port on 127.0.0.1.
+    public var port: Int
 
     public init(name: String, script: String, arguments: String = "", environment: String = "") {
         self.name = name
+        self.kind = .script
         self.script = script
         self.arguments = arguments
         self.environment = environment
+        self.documentRoot = "public"
+        self.port = 8000
+    }
+
+    /// A built-in web server serving `documentRoot` (optionally through a router script).
+    public static func server(name: String, documentRoot: String, port: Int = 8000, router: String = "") -> RunConfiguration {
+        var config = RunConfiguration(name: name, script: router)
+        config.kind = .server
+        config.documentRoot = documentRoot
+        config.port = port
+        return config
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .script
+        script = try c.decodeIfPresent(String.self, forKey: .script) ?? ""
+        arguments = try c.decodeIfPresent(String.self, forKey: .arguments) ?? ""
+        environment = try c.decodeIfPresent(String.self, forKey: .environment) ?? ""
+        documentRoot = try c.decodeIfPresent(String.self, forKey: .documentRoot) ?? "public"
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 8000
+    }
+
+    /// Arguments after `php` (and after any Xdebug flags) for this configuration.
+    public var phpArguments: [String] {
+        switch kind {
+        case .script:
+            return [script] + argumentList
+        case .server:
+            let root = documentRoot.isEmpty ? "." : documentRoot
+            return ["-S", "127.0.0.1:\(port)", "-t", root] + (script.isEmpty ? [] : [script])
+        }
+    }
+
+    /// Where the web server answers (nil for scripts).
+    public var url: URL? {
+        kind == .server ? URL(string: "http://127.0.0.1:\(port)/") : nil
     }
 
     public var argumentList: [String] { ShellWords.split(arguments) }

@@ -524,3 +524,69 @@ import PHPIDECore
         try await finish(workspace)
     }
 }
+
+@MainActor
+@Suite(.serialized) struct WorkspaceWebServerTests {
+    private func makeSite() throws -> URL {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-web-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("public"), withIntermediateDirectories: true)
+        let dir = base.canonicalFileURL
+        try "<?php\n$page = $_GET['p'] ?? 'home';\necho \"page=$page\";\n"
+            .write(to: dir.appendingPathComponent("public/index.php"), atomically: true, encoding: .utf8)
+        return dir
+    }
+
+    /// GETs `url`, retrying while the server starts.
+    private func fetch(_ url: URL) async -> String? {
+        for _ in 0..<40 {
+            if let (data, _) = try? await URLSession.shared.data(from: url) { return String(decoding: data, as: UTF8.self) }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return nil
+    }
+
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func servesThePublicFolder() async throws {
+        let dir = try makeSite()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let server = try #require(workspace.runConfigurations.first)
+        #expect(server.kind == .server && server.documentRoot == "public")
+        let port = Int.random(in: 50000..<55000)
+        workspace.runConfigurations[0].port = port
+
+        workspace.runSelectedConfiguration()
+        #expect(workspace.output.contains("Serving http://127.0.0.1:\(port)/"))
+        let body = await fetch(URL(string: "http://127.0.0.1:\(port)/?p=docs")!)
+        #expect(body == "page=docs")
+        workspace.stopRun()
+        for _ in 0..<100 where workspace.isRunning { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(!workspace.isRunning)
+        await workspace.shutdown()
+    }
+
+    @Test(.enabled(if: WorkspaceDebugTests.adapterReady && PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func debugsARequestToTheWebServer() async throws {
+        let dir = try makeSite()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let port = Int.random(in: 55000..<60000)
+        workspace.runConfigurations[0].port = port
+        let index = try #require(workspace.openFile(dir.appendingPathComponent("public/index.php")))
+        workspace.toggleBreakpoint(in: index, line: 2)  // echo line (1-based 3)
+
+        workspace.debug(configuration: workspace.runConfigurations[0])
+        let request = Task { await fetch(URL(string: "http://127.0.0.1:\(port)/?p=debug")!) }
+        for _ in 0..<200 where workspace.executionLocation == nil { try await Task.sleep(for: .milliseconds(50)) }
+        let location = try #require(workspace.executionLocation, "never paused; output:\n\(workspace.output)")
+        #expect(location.path.hasSuffix("/public/index.php") && location.line == 3)
+
+        workspace.debugSession?.resume()
+        #expect(await request.value == "page=debug")
+        workspace.stopDebugging()
+        for _ in 0..<100 where workspace.isDebugging { try await Task.sleep(for: .milliseconds(50)) }
+        await workspace.shutdown()
+    }
+}

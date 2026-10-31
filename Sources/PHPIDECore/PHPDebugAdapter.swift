@@ -66,20 +66,23 @@ public enum PHPDebugAdapter {
 
     /// `launch` arguments for running `program` under the debugger. Port 0 lets the adapter pick a free
     /// port and pass it to php; Xdebug is loaded for this run only (see `XdebugStatus.runtimeArguments`).
-    public static func launchArguments(program: String, cwd: String, php: String, xdebug: XdebugStatus,
-                                       arguments: [String] = [], environment: [String: String] = [:]) -> JSONValue {
-        [
+    /// With `program` nil, `phpArguments` (e.g. `-S 127.0.0.1:8000 -t public`) say what php runs.
+    public static func launchArguments(program: String?, cwd: String, php: String, xdebug: XdebugStatus,
+                                       arguments: [String] = [], environment: [String: String] = [:],
+                                       phpArguments: [String] = []) -> JSONValue {
+        var config: [String: JSONValue] = [
             "request": "launch",
-            "program": .string(program),
             "cwd": .string(cwd),
             "port": 0,
             "runtimeExecutable": .string(php),
             // The adapter substitutes `${port}` with the port it actually listens on; php must be told.
-            "runtimeArgs": .array((xdebug.runtimeArguments + ["-dxdebug.client_port=${port}"]).map(JSONValue.string)),
+            "runtimeArgs": .array((xdebug.runtimeArguments + ["-dxdebug.client_port=${port}"] + phpArguments).map(JSONValue.string)),
             "args": .array(arguments.map(JSONValue.string)),
             "env": .object(environment.mapValues(JSONValue.string)),
             "stopOnEntry": false,
         ]
+        if let program { config["program"] = .string(program) }
+        return .object(config)
     }
 
     /// `launch` arguments without a program: wait for Xdebug to connect (web requests, CLI runs elsewhere).

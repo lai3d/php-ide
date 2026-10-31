@@ -257,6 +257,8 @@ struct PHPIDECommands: Commands {
                 Button("Run Current File") { workspace.runActiveFile() }
                     .keyboardShortcut("r", modifiers: [.control, .shift])
                     .disabled(!workspace.isPHPFile)
+                Button("Open in Browser") { workspace.openInBrowser() }
+                    .disabled(workspace.selectedRunConfiguration?.kind != .server)
                 Button("Edit Run Configurations…") { workspace.isEditingRunConfigurations = true }
                     .disabled(workspace.rootURL == nil)
                 Button("Check Syntax (php -l)") { Task { await workspace.checkSyntax() } }

@@ -58,17 +58,32 @@ struct RunConfigurationsSheet: View {
                     if let index = workspace.runConfigurations.firstIndex(where: { $0.id == selection }) {
                         Form {
                             TextField("Name", text: $workspace.runConfigurations[index].name)
-                            Picker("Script", selection: $workspace.runConfigurations[index].script) {
-                                ForEach(scriptChoices(including: workspace.runConfigurations[index].script), id: \.self) {
-                                    Text($0).tag($0)
-                                }
+                            Picker("Kind", selection: $workspace.runConfigurations[index].kind) {
+                                Text("PHP script").tag(RunConfiguration.Kind.script)
+                                Text("Built-in web server").tag(RunConfiguration.Kind.server)
                             }
-                            TextField("Script path", text: $workspace.runConfigurations[index].script,
-                                      prompt: Text("relative to the project root"))
-                                .font(.system(.body, design: .monospaced))
-                            TextField("Arguments", text: $workspace.runConfigurations[index].arguments,
-                                      prompt: Text("migrate --force --name \"my app\""))
-                                .font(.system(.body, design: .monospaced))
+                            .pickerStyle(.segmented)
+                            if workspace.runConfigurations[index].kind == .script {
+                                Picker("Script", selection: $workspace.runConfigurations[index].script) {
+                                    ForEach(scriptChoices(including: workspace.runConfigurations[index].script), id: \.self) {
+                                        Text($0).tag($0)
+                                    }
+                                }
+                                TextField("Script path", text: $workspace.runConfigurations[index].script,
+                                          prompt: Text("relative to the project root"))
+                                    .font(.system(.body, design: .monospaced))
+                                TextField("Arguments", text: $workspace.runConfigurations[index].arguments,
+                                          prompt: Text("migrate --force --name \"my app\""))
+                                    .font(.system(.body, design: .monospaced))
+                            } else {
+                                TextField("Document root", text: $workspace.runConfigurations[index].documentRoot,
+                                          prompt: Text("public"))
+                                    .font(.system(.body, design: .monospaced))
+                                TextField("Port", value: $workspace.runConfigurations[index].port, format: .number.grouping(.never))
+                                TextField("Router script", text: $workspace.runConfigurations[index].script,
+                                          prompt: Text("optional, e.g. public/index.php"))
+                                    .font(.system(.body, design: .monospaced))
+                            }
                             LabeledContent("Environment") {
                                 TextEditor(text: $workspace.runConfigurations[index].environment)
                                     .font(.system(.body, design: .monospaced))
