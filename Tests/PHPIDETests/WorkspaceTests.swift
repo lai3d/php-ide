@@ -198,7 +198,8 @@ import PHPIDECore
         await workspace.openFolder(dir)
         let main = try #require(workspace.activeDocument)
         #expect(main.name == "index.php")
-        for _ in 0..<100 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
+        // A fresh CI machine builds Intelephense's stub index while other suites start servers too: be patient.
+        for _ in 0..<400 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
         #expect(!workspace.isIndexing)
         await workspace.findReferences(in: main, at: (mainSource as NSString).range(of: "greet()").location + 1)
         #expect(workspace.bottomTab == .references)
@@ -631,7 +632,7 @@ import PHPIDECore
         let workspace = Workspace()
         await workspace.openFolder(dir)
         let doc = try #require(workspace.activeDocument)
-        for _ in 0..<100 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<400 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
 
         func items(after typed: String) async -> [CompletionItem] {
             workspace.updateText(of: doc, to: "<?php\nclass Greeter { public function greet(): string { return ''; } }\n$greeter = new Greeter();\n" + typed)
