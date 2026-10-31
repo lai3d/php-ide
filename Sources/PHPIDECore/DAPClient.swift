@@ -1,6 +1,6 @@
 import Foundation
 
-/// A Debug Adapter Protocol client for `dlv dap` (Delve), which listens on TCP.
+/// A Debug Adapter Protocol client talking to an adapter over stdio (vscode-php-debug under node).
 public final class DAPClient: @unchecked Sendable {
     public typealias EventHandler = @Sendable (_ event: String, _ body: JSONValue) -> Void
     public typealias ExitHandler = @Sendable () -> Void
@@ -13,7 +13,7 @@ public final class DAPClient: @unchecked Sendable {
         public var errorDescription: String? {
             switch self {
             case .notConnected: "debug adapter is not connected"
-            case .adapterFailed(let message): "couldn't start Delve: \(message)"
+            case .adapterFailed(let message): "couldn't start the debug adapter: \(message)"
             case .request(let command, let message): "\(command): \(message)"
             }
         }
@@ -21,7 +21,7 @@ public final class DAPClient: @unchecked Sendable {
 
     private let lock = NSLock()
     private var process: Process?
-    private var socket: FileHandle?
+    private var socket: FileHandle?  // the adapter's stdin
     private var framer = LSPFramer()  // DAP uses the same Content-Length framing as LSP
     private var seq = 1
     private var pending: [Int: (command: String, continuation: CheckedContinuation<JSONValue, any Error>)] = [:]
@@ -30,7 +30,7 @@ public final class DAPClient: @unchecked Sendable {
     private var _onEvent: EventHandler?
     private var _onExit: ExitHandler?
     private var exited = false
-    private static let trace = ProcessInfo.processInfo.environment["GOIDE_DAP_TRACE"] != nil
+    private static let trace = ProcessInfo.processInfo.environment["PHPIDE_DAP_TRACE"] != nil
 
     public init() {}
 
@@ -46,67 +46,21 @@ public final class DAPClient: @unchecked Sendable {
         set { lock.withLock { _onExit = newValue } }
     }
 
-    /// Starts `dlv dap` on a free localhost port and connects to it.
-    /// `output` receives Delve's own stdout/stderr (and a local debuggee's output).
-    public func start(dlv: URL, directory: URL, environment: [String: String],
-                      output: (@Sendable (String) -> Void)? = nil) async throws {
+    /// Starts the adapter (`executable arguments…`) and speaks DAP over its stdin/stdout.
+    /// `stderr` receives the adapter's own diagnostics.
+    public func start(executable: URL, arguments: [String], directory: URL, environment: [String: String],
+                      stderr: (@Sendable (String) -> Void)? = nil) throws {
         let process = Process()
-        process.executableURL = dlv
-        process.arguments = ["dap", "--listen=127.0.0.1:0"]
+        process.executableURL = executable
+        process.arguments = arguments
         process.currentDirectoryURL = directory
         process.environment = environment
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let input = Pipe(), output = Pipe(), errors = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = errors
         process.terminationHandler = { [weak self] _ in self?.handleExit() }
-
-        // Delve prints "DAP server listening at: 127.0.0.1:PORT" once ready.
-        let port: Int = try await withCheckedThrowingContinuation { continuation in
-            let state = PortWaiter(continuation)
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    state.fail(DAPError.adapterFailed("dlv exited"))
-                    return
-                }
-                let text = String(decoding: data, as: UTF8.self)
-                state.feed(text)
-                if state.isDone { output?(text) }
-            }
-            do {
-                try process.run()
-            } catch {
-                state.fail(DAPError.adapterFailed(error.localizedDescription))
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
-                state.fail(DAPError.adapterFailed("timed out waiting for dlv dap"))
-            }
-        }
-        lock.withLock { self.process = process }
-        try connect(port: port)
-    }
-
-    private func connect(port: Int) throws {
-        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw DAPError.adapterFailed("socket() failed") }
-        var one: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(UInt16(port)).bigEndian
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard result == 0 else {
-            close(fd)
-            throw DAPError.adapterFailed("couldn't connect to 127.0.0.1:\(port)")
-        }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        handle.readabilityHandler = { [weak self] handle in
+        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
@@ -115,7 +69,20 @@ public final class DAPClient: @unchecked Sendable {
             }
             self?.receive(data)
         }
-        lock.withLock { socket = handle }
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty { handle.readabilityHandler = nil; return }
+            stderr?(String(decoding: data, as: UTF8.self))
+        }
+        do {
+            try process.run()
+        } catch {
+            throw DAPError.adapterFailed(error.localizedDescription)
+        }
+        lock.withLock {
+            self.process = process
+            self.socket = input.fileHandleForWriting
+        }
     }
 
     /// Sends a request and returns the response `body` (throws if `success` is false).
@@ -150,7 +117,7 @@ public final class DAPClient: @unchecked Sendable {
         }
     }
 
-    /// Ends the session (and the debuggee), then stops Delve.
+    /// Ends the session (and the debuggee), then stops the adapter.
     public func shutdown() async {
         _ = try? await withTimeout(seconds: 2) {
             try await self.request("disconnect", arguments: ["terminateDebuggee": true])
@@ -221,37 +188,6 @@ public final class DAPClient: @unchecked Sendable {
         waiters.forEach { $0.continuation.resume(throwing: DAPError.notConnected) }
         eventWaiters.forEach { $0.resume() }
         handler?()
-    }
-}
-
-/// Collects dlv's startup output until it announces its port (resumes the continuation once).
-private final class PortWaiter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Int, any Error>?
-    private var buffer = ""
-
-    init(_ continuation: CheckedContinuation<Int, any Error>) { self.continuation = continuation }
-
-    var isDone: Bool { lock.withLock { continuation == nil } }
-
-    func feed(_ text: String) {
-        let found: (CheckedContinuation<Int, any Error>, Int)? = lock.withLock {
-            guard continuation != nil else { return nil }
-            buffer += text
-            guard let range = buffer.range(of: #"listening at: [^\s:]+:(\d+)"#, options: .regularExpression),
-                  let port = Int(buffer[range].split(separator: ":").last ?? "") else { return nil }
-            defer { continuation = nil }
-            return (continuation!, port)
-        }
-        if let (continuation, port) = found { continuation.resume(returning: port) }
-    }
-
-    func fail(_ error: any Error) {
-        let pending = lock.withLock { () -> CheckedContinuation<Int, any Error>? in
-            defer { continuation = nil }
-            return continuation
-        }
-        pending?.resume(throwing: error)
     }
 }
 

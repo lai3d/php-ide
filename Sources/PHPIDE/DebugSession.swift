@@ -32,7 +32,7 @@ final class VariableNode: Identifiable {
     }
 }
 
-/// One Delve debugging session, driven over DAP.
+/// One Xdebug debugging session, driven over DAP through vscode-php-debug.
 @MainActor
 @Observable
 final class DebugSession {
@@ -58,8 +58,8 @@ final class DebugSession {
 
     var isActive: Bool { state != .terminated }
 
-    /// Launches Delve, sets breakpoints (one-based lines per path) and starts the program.
-    func start(dlv: URL, directory: URL, launch: JSONValue, breakpoints: [String: [Int: String?]]) async {
+    /// Starts the adapter (`node phpDebug.js`), sets breakpoints (one-based lines per path) and launches.
+    func start(node: URL, adapter: URL, directory: URL, launch: JSONValue, breakpoints: [String: [Int: String?]]) async {
         client.onEvent = { event, body in
             Task { @MainActor in self.handle(event: event, body: body) }
         }
@@ -67,11 +67,12 @@ final class DebugSession {
             Task { @MainActor in self.finish() }
         }
         do {
-            try await client.start(dlv: dlv, directory: directory, environment: ToolLocator.environment()) { text in
+            try client.start(executable: node, arguments: [adapter.path], directory: directory,
+                             environment: ToolLocator.environment()) { text in
                 Task { @MainActor in self.onOutput?(text) }
             }
             try await client.request("initialize", arguments: [
-                "clientID": "goide", "clientName": "PHPIDE", "adapterID": "go",
+                "clientID": "phpide", "clientName": "PHPIDE", "adapterID": "php",
                 "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path",
                 "supportsVariableType": true,
             ])
@@ -235,6 +236,9 @@ final class DebugSession {
             await select(frameID: frame.id)
         }
     }
+
+    /// Ends a session that never started (setup failed before the adapter launched).
+    func abandon() { finish() }
 
     private func finish() {
         guard state != .terminated else { return }

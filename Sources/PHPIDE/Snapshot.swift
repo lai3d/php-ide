@@ -234,7 +234,7 @@ enum Snapshot {
                 print("snapshot failed: no window")
             }
             if let workspace, workspace.isDebugging {
-                workspace.stopDebugging()  // don't leave dlv behind
+                workspace.stopDebugging()  // don't leave the debug adapter behind
                 try? await Task.sleep(for: .milliseconds(800))
             }
             exit(0)  // skip the unsaved-changes prompt

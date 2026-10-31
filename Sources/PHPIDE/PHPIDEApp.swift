@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
-        Workspace.allOpen.forEach { $0.stopDebugging() }  // ends dlv and the debuggees
+        Workspace.allOpen.forEach { $0.stopDebugging() }  // ends the debug adapters and debuggees
     }
 }
 
@@ -279,6 +279,8 @@ struct PHPIDECommands: Commands {
                 Button("Terminal") { workspace.showTerminal() }
                     .keyboardShortcut("`", modifiers: .control)
                 Divider()
+                Button("Listen for Xdebug (port 9003)") { workspace.listenForXdebug() }
+                    .disabled(workspace.rootURL == nil || workspace.isDebugging)
                 Button("Install Xdebug (pecl install xdebug)") { workspace.installXdebug() }
                     .disabled(workspace.rootURL == nil || workspace.xdebugStatus?.isAvailable == true)
                 Menu("Composer") {

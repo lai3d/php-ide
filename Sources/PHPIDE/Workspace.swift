@@ -1751,11 +1751,6 @@ final class Workspace {
         runTests(.file(document.url))
     }
 
-    private func packagePattern(for dir: URL) -> String {
-        let relative = displayPath(Self.key(for: dir))
-        return relative == Self.key(for: dir) || relative.isEmpty ? "." : "./" + relative
-    }
-
     /// Opens a test method's declaration: in its file when known, else searched in the project's *Test.php files.
     func revealTest(_ test: TestResult) {
         guard let rootURL else { return }
@@ -1865,61 +1860,71 @@ final class Workspace {
         }
     }
 
-    /// Debugs the test at the caret (in a *Test.php file), else the selected configuration (or the root).
+    /// ⌥⌘R: the test at the caret (in a *Test.php file), else the selected configuration, else the active file.
     func startDebugging() {
-        guard let rootURL else { return }
         if let document = activeDocument, PHPTestFinder.isTestFile(document.name),
            let name = PHPTestFinder.enclosingTest(in: document.text, at: document.caretOffset) {
-            debug(test: name, in: document.url.deletingLastPathComponent())
+            debug(test: name, in: document.url)
         } else if let config = selectedRunConfiguration {
             debug(configuration: config)
-        } else if let document = activeDocument, document.isPHP, !PHPTestFinder.isTestFile(document.name) {
-            debug(package: document.url.deletingLastPathComponent())
+        } else if let document = activeDocument, document.isPHP {
+            debug(script: Self.key(for: document.url), title: document.name)
         } else {
-            debug(package: rootURL)
+            output = "Nothing to debug: open a PHP file or add a run configuration.\n"
+            bottomTab = .output
         }
-    }
-
-    func debug(package dir: URL) {
-        launchDebugger(title: packagePattern(for: dir), directory: dir, launch: [
-            "request": "launch", "mode": "debug", "program": .string(Self.key(for: dir)),
-            "cwd": .string(Self.key(for: dir)), "outputMode": "remote",
-        ])
     }
 
     func debug(configuration config: RunConfiguration) {
         guard let rootURL else { return }
-        let dir = Self.key(for: rootURL.appendingPathComponent(config.script).deletingLastPathComponent())
-        launchDebugger(title: config.name, directory: URL(fileURLWithPath: dir), launch: [
-            "request": "launch", "mode": "debug", "program": .string(dir),
-            "cwd": .string(Self.key(for: rootURL)), "outputMode": "remote",
-            "args": .array(config.argumentList.map(JSONValue.string)),
-            "env": .object(config.environmentVariables.mapValues(JSONValue.string)),
-        ])
+        debug(script: Self.key(for: rootURL.appendingPathComponent(config.script)), arguments: config.argumentList,
+              environment: config.environmentVariables, title: config.name)
     }
 
-    func debug(test name: String, in dir: URL) {
-        launchDebugger(title: name, directory: dir, launch: [
-            "request": "launch", "mode": "test", "program": .string(Self.key(for: dir)),
-            "cwd": .string(Self.key(for: dir)), "outputMode": "remote",
-            "args": ["-test.run", .string("^\(NSRegularExpression.escapedPattern(for: name))$"), "-test.v"],
-        ])
-    }
-
-    private func launchDebugger(title: String, directory: URL, launch: JSONValue) {
-        guard rootURL != nil else { return }
-        // Build the debug binary outside the project (Delve defaults to the package folder).
-        var launch = launch
-        if case .object(var config) = launch {
-            config["output"] = .string(FileManager.default.temporaryDirectory
-                .appendingPathComponent("goide-debug-\(UUID().uuidString)").path)
-            launch = .object(config)
+    /// Runs `script` (absolute path) with php under Xdebug.
+    func debug(script: String, arguments: [String] = [], environment: [String: String] = [:], title: String) {
+        guard let rootURL else { return }
+        let cwd = Self.key(for: rootURL)
+        launchDebugger(title: title) { php, xdebug in
+            PHPDebugAdapter.launchArguments(program: script, cwd: cwd, php: php.path, xdebug: xdebug,
+                                            arguments: arguments, environment: environment)
         }
-        if let session = debugSession, session.isActive { return }
-        guard let dlv = ToolLocator.find("dlv") else {
-            output = "dlv not found. Install it with:\n  go install github.com/go-delve/delve/cmd/dlv@latest\n"
+    }
+
+    /// Runs PHPUnit for one test method (and its data sets) under Xdebug.
+    func debug(test name: String, in file: URL) {
+        guard let rootURL, let runner = PHPTestRunner.locate(in: rootURL) else {
+            output = "No test runner found. Add PHPUnit to the project:\n  composer require --dev phpunit/phpunit\n"
             bottomTab = .output
             return
+        }
+        let text = documents.first { Self.key(for: $0.url) == Self.key(for: file) }?.text
+            ?? (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        let arguments = PHPTestRunner.arguments(root: rootURL, file: displayPath(Self.key(for: file)),
+                                                className: PHPTestFinder.className(in: text), method: name)
+            .filter { $0 != "--teamcity" }
+        debug(script: Self.key(for: runner), arguments: arguments, title: name)
+    }
+
+    /// Waits for Xdebug connections on port 9003 (web requests or CLI runs started elsewhere).
+    func listenForXdebug(port: Int = 9003) {
+        launchDebugger(title: "Listening for Xdebug on :\(port)", needsXdebugLocally: false) { _, _ in
+            PHPDebugAdapter.listenArguments(port: port)
+        }
+    }
+
+    /// Starts a session: checks php / Xdebug / node, installs the adapter on first use, then launches.
+    private func launchDebugger(title: String, needsXdebugLocally: Bool = true,
+                                launch: @escaping @MainActor (_ php: URL, _ xdebug: XdebugStatus) -> JSONValue) {
+        guard let rootURL else { return }
+        if let session = debugSession, session.isActive { return }
+        func fail(_ message: String) {
+            output = message
+            bottomTab = .output
+        }
+        guard let php = ToolLocator.find("php") else { return fail("php not found. Install it: brew install php\n") }
+        guard let node = ToolLocator.find("node") else {
+            return fail("node not found — the PHP debug adapter runs on Node.js. Install it: brew install node\n")
         }
         saveAll()
         let session = DebugSession(title: title)
@@ -1935,7 +1940,24 @@ final class Workspace {
         output = "Debugging \(title)…\n"
         bottomTab = .debug
         let specs = Dictionary(uniqueKeysWithValues: breakpoints.keys.map { ($0, breakpointSpec($0)) })
-        Task { await session.start(dlv: dlv, directory: directory, launch: launch, breakpoints: specs) }
+        Task {
+            let xdebug = await refreshXdebugStatus()
+            if needsXdebugLocally, !xdebug.isAvailable {
+                session.abandon()
+                return fail("Xdebug isn't installed for \(php.path).\nUse PHP ▸ Install Xdebug (runs \(Xdebug.installHint)).\n")
+            }
+            var adapter = PHPDebugAdapter.installedScript()
+            if adapter == nil {
+                appendOutput("Downloading the PHP debug adapter (vscode-php-debug \(PHPDebugAdapter.version))…\n")
+                do {
+                    adapter = try await PHPDebugAdapter.install()
+                } catch {
+                    session.abandon()
+                    return fail("\(error.localizedDescription)\n")
+                }
+            }
+            await session.start(node: node, adapter: adapter!, directory: rootURL, launch: launch(php, xdebug), breakpoints: specs)
+        }
     }
 
     func stopDebugging() {
