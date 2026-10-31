@@ -43,7 +43,7 @@ enum EditorTheme {
     }
 
     // System colors adapt to light and dark mode automatically.
-    static func color(for kind: GoTokenKind) -> NSColor {
+    static func color(for kind: SyntaxTokenKind) -> NSColor {
         switch kind {
         case .keyword: .systemPink
         case .type: .systemTeal
@@ -52,6 +52,10 @@ enum EditorTheme {
         case .string: .systemOrange
         case .number: .systemIndigo
         case .comment: .systemGreen
+        case .variable: .systemBrown
+        case .attribute: .systemYellow
+        case .phpTag: .systemRed
+        case .docTag: .systemMint
         }
     }
 }

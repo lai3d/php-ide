@@ -22,7 +22,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 |---|---|---|---|
 | 1.1 | ✅ Language server | Intelephense (`--stdio`, default) or Phpactor (`language-server`) with fallback; Settings picker + licence key; Composer/npm global bins on the search path; `indexingStarted`/`indexingEnded` → status; Workspace tests ported to PHP | 0.6h |
 | 1.1b | ⬜ Premium-feature tests | Intelephense (free) has no rename / code actions / implementation / folding / semantic tokens / inlay hints: re-add PHP versions of those tests against Phpactor (phar) and port the remaining gopls-gated Core tests | 0.5h |
-| 1.2 | ⬜ PHP highlighter | Regex lexer: `<?php`/`?>` + inline HTML, heredoc/nowdoc, `$variables`, interpolation, attributes `#[...]`, PHPDoc tags, casts, `match`/`enum`/`readonly` | 0.5h |
+| 1.2 | ✅ PHP highlighter | Hand-written lexer (`PHPHighlighter`): `<?php`/`?>` + inline HTML, heredoc/nowdoc, `$variables`, interpolation, attributes `#[...]`, PHPDoc tags, casts, `match`/`enum`/`readonly` | 0.5h |
 | 1.3 | ⬜ Run / lint | Run current script or a configured entry with `php`; `php -l` on save; PHPStan / Psalm (if in `vendor/bin`) into Problems | 0.5h |
 | 1.4 | ⬜ Tests | PHPUnit (`vendor/bin/phpunit --log-junit`) / Pest: gutter ▶ / ✓ / ✗ per `test*` method and `#[Test]`, run at cursor / file / all | 0.8h |
 | 1.5 | ⬜ Debugger (Xdebug) | Replace Delve with vscode-php-debug as the DAP adapter (download on first use, run with node); `pecl install xdebug` helper; launch script / listen for web requests; breakpoints, stack, variables | 1–1.5h |

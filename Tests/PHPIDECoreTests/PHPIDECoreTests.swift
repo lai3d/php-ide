@@ -52,28 +52,6 @@ import Testing
     }
 }
 
-@Suite struct GoHighlighterTests {
-    private func kinds(_ source: String) -> [(String, GoTokenKind)] {
-        let ns = source as NSString
-        return GoHighlighter.tokenize(source).map { (ns.substring(with: $0.range), $0.kind) }
-    }
-
-    @Test func classifiesTokens() {
-        let tokens = kinds(#"func main() { x := len("hi // no") + 42 } // done"#)
-        #expect(tokens.map(\.0) == ["func", "main", "len", #""hi // no""#, "42", "// done"])
-        #expect(tokens.map(\.1) == [.keyword, .function, .builtin, .string, .number, .comment])
-    }
-
-    @Test func handlesRawStringsAndTypes() {
-        let tokens = kinds("var s string = `a\n\"b\"`")
-        #expect(tokens.map(\.1) == [.keyword, .type, .string])
-    }
-
-    @Test func highlightsUnterminatedBlockComment() {
-        #expect(kinds("x /* open").last?.1 == .comment)
-    }
-}
-
 @Suite struct DiagnosticTests {
     @Test func parsesPublishDiagnostics() throws {
         let params: JSONValue = [

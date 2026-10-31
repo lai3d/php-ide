@@ -32,7 +32,7 @@ struct EditorServices {
 /// completion (type or Esc), hover info, and ⌘-click go-to-definition.
 struct CodeEditorView: NSViewRepresentable {
     var text: String
-    var highlightGo: Bool
+    var highlightPHP: Bool
     var isTestFile = false
     var testStatuses: [String: GoTestResult.Status] = [:]
     var breakpoints: Set<Int> = []
@@ -152,7 +152,7 @@ struct CodeEditorView: NSViewRepresentable {
         if textView.string != text {
             // Changed programmatically (format, rename, reload); typing never gets here.
             coordinator.applyExternalChange(text)
-        } else if coordinator.appliedDiagnostics != diagnostics || coordinator.appliedHighlightGo != highlightGo {
+        } else if coordinator.appliedDiagnostics != diagnostics || coordinator.appliedHighlightPHP != highlightPHP {
             coordinator.applyStyling()
             coordinator.scheduleInlayHints(after: .milliseconds(150))  // gopls re-checked the file
         }
@@ -207,7 +207,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var textView: CodeTextView?
         weak var ruler: LineNumberRulerView?
         var appliedDiagnostics: [Diagnostic] = []
-        var appliedHighlightGo = false
+        var appliedHighlightPHP = false
         var lastRevealID: UUID?
         var lastQuickFixRequest = 0
         var lastFoldRequestID: UUID?
@@ -269,7 +269,7 @@ struct CodeEditorView: NSViewRepresentable {
                 isApplyingCommand = false
                 autoPairs.append(AutoPair(open: caret - 1, close: caret))
             }
-            guard parent.highlightGo, !isApplyingCompletion, !isApplyingExternalChange, !isApplyingCommand else { return }
+            guard parent.highlightPHP, !isApplyingCompletion, !isApplyingExternalChange, !isApplyingCommand else { return }
 
             // Parameter hints: open on "(" / ",", follow edits while open.
             if typed == "(" || typed == "," {
@@ -479,7 +479,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func scheduleInlayHints(after delay: Duration) {
             inlayTask?.cancel()
-            guard parent.highlightGo else {
+            guard parent.highlightPHP else {
                 if !placedHints.isEmpty || !semanticRuns.isEmpty {
                     placedHints = []
                     semanticRuns = []
@@ -582,7 +582,7 @@ struct CodeEditorView: NSViewRepresentable {
                 items.append(CodeTextView.InlayItem(offset: fold.location, label: label, width: width,
                                                     padLeft: 2, padRight: 2, isFold: true))
             }
-            guard parent.highlightGo, parent.showInlayHints, !placedHints.isEmpty else {
+            guard parent.highlightPHP, parent.showInlayHints, !placedHints.isEmpty else {
                 textView.inlayItems = items
                 return
             }
@@ -611,7 +611,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// Highlights other uses of the symbol at the caret, after a short pause.
         private func scheduleOccurrences() {
             occurrenceTask?.cancel()
-            guard let textView, parent.highlightGo, textView.selectedRange().length == 0 else {
+            guard let textView, parent.highlightPHP, textView.selectedRange().length == 0 else {
                 clearOccurrences()
                 return
             }
@@ -708,7 +708,7 @@ struct CodeEditorView: NSViewRepresentable {
             switch selector {
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSTextView.complete(_:)):
                 // Esc / ⌥Esc: show completions on demand.
-                if parent.highlightGo && textView.isEditable { scheduleCompletion(after: .zero) }
+                if parent.highlightPHP && textView.isEditable { scheduleCompletion(after: .zero) }
                 return true
             case #selector(NSResponder.insertNewline(_:)):
                 autoIndentNewline(in: textView)
@@ -749,7 +749,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Returns false to swallow the change (handled here), nil to let it through.
         private func handleAutoPair(_ textView: NSTextView, range: NSRange, replacement: String?) -> Bool? {
-            guard parent.highlightGo, let replacement else { return nil }
+            guard parent.highlightPHP, let replacement else { return nil }
             let ns = textView.string as NSString
             if replacement.count == 1, let character = replacement.first, range.length == 0 {
                 // Typing a closer exactly where ours sits: step over it.
@@ -1030,7 +1030,7 @@ struct CodeEditorView: NSViewRepresentable {
         // MARK: Hover
 
         func mouseMoved(to index: Int?) {
-            guard parent.highlightGo, let textView, !completionPopup.isVisible else { return }
+            guard parent.highlightPHP, let textView, !completionPopup.isVisible else { return }
             guard let index, let word = GoIdentifier.wordRange(in: textView.string as NSString, at: index) else {
                 endHover()
                 return
@@ -1166,13 +1166,13 @@ struct CodeEditorView: NSViewRepresentable {
 
         func commandClick(at index: Int) {
             dismissPopups()
-            guard parent.highlightGo else { return }
+            guard parent.highlightPHP else { return }
             parent.services.definition(index)
         }
 
         /// Language actions at the top of the editor's right-click menu.
         func contextMenuItems(at offset: Int) -> [NSMenuItem] {
-            guard parent.highlightGo else { return [] }
+            guard parent.highlightPHP else { return [] }
             dismissPopups()
             return [
                 ActionMenuItem(title: "Jump to Definition") { [weak self] in self?.parent.services.definition(offset) },
@@ -1189,7 +1189,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Pops up the code actions for the caret/selection below the caret (⌥↩).
         func showQuickFixes() {
-            guard let textView, parent.highlightGo else { return }
+            guard let textView, parent.highlightPHP else { return }
             dismissPopups()
             let selection = textView.selectedRange()
             Task { [weak self] in
@@ -1246,8 +1246,8 @@ struct CodeEditorView: NSViewRepresentable {
 
             storage.beginEditing()
             storage.setAttributes(EditorTheme.baseAttributes(parent.settings), range: fullRange)
-            if parent.highlightGo {
-                for token in GoHighlighter.tokenize(text) {
+            if parent.highlightPHP {
+                for token in PHPHighlighter.tokenize(text) {
                     storage.addAttribute(.foregroundColor, value: EditorTheme.color(for: token.kind), range: token.range)
                 }
                 for run in semanticRuns where NSMaxRange(run.range) <= storage.length {
@@ -1280,7 +1280,7 @@ struct CodeEditorView: NSViewRepresentable {
             updateFoldMarkers()
 
             appliedDiagnostics = parent.diagnostics
-            appliedHighlightGo = parent.highlightGo
+            appliedHighlightPHP = parent.highlightPHP
         }
     }
 }
