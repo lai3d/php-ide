@@ -396,3 +396,21 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceAnalyzeTests {
+    /// Uses a PHPStan installed in a scratch project; set PHPIDE_PHPSTAN_PROJECT to its folder.
+    nonisolated static let project = ProcessInfo.processInfo.environment["PHPIDE_PHPSTAN_PROJECT"]
+
+    @Test(.enabled(if: project != nil), .timeLimit(.minutes(1)))
+    func runsPHPStanIntoProblems() async throws {
+        let dir = URL(fileURLWithPath: try #require(Self.project)).canonicalFileURL
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        await workspace.analyze()
+        let problems = workspace.allProblems.filter { $0.diagnostic.source == "phpstan" }
+        #expect(!problems.isEmpty)
+        #expect(problems.allSatisfy { $0.path.hasPrefix(dir.path + "/") })
+        await workspace.shutdown()
+    }
+}

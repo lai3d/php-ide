@@ -262,6 +262,9 @@ struct PHPIDECommands: Commands {
                 Button("Check Syntax (php -l)") { Task { await workspace.checkSyntax() } }
                     .keyboardShortcut("b")
                     .disabled(workspace.rootURL == nil || workspace.isAnalyzing)
+                Button("Analyze (PHPStan / Psalm)") { Task { await workspace.analyze() } }
+                    .keyboardShortcut("b", modifiers: [.control, .option, .command])
+                    .disabled(workspace.rootURL == nil || workspace.isAnalyzing)
                 Button("Test All") { workspace.runTests(.all) }
                     .keyboardShortcut("u")
                 Button("Test Package") { workspace.runActivePackageTests() }

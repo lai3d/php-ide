@@ -2053,6 +2053,33 @@ final class Workspace {
         if errors > 0 { bottomTab = .problems }
     }
 
+    /// ⌃⌥⌘B: PHPStan or Psalm (project `vendor/bin` first) into Problems.
+    func analyze() async {
+        guard let rootURL, !isAnalyzing else { return }
+        guard let (analyzer, executable) = StaticAnalyzer.preferred(in: rootURL) else {
+            output = "No static analyzer found. Add one to the project:\n  composer require --dev phpstan/phpstan\n  composer require --dev vimeo/psalm\n"
+            bottomTab = .output
+            return
+        }
+        saveAll()
+        isAnalyzing = true
+        defer { isAnalyzing = false }
+        let arguments = analyzer.arguments(in: rootURL)
+        flashStatus("\(analyzer.displayName): analysing…")
+        let started = Date()
+        let result = await ProcessRunner.run(executable, arguments, in: rootURL)
+        guard let found = analyzer.parse(result.output, root: rootURL) else {
+            output = "$ \(executable.lastPathComponent) \(arguments.joined(separator: " "))\n\(result.output)\n[exit \(result.status): no report]\n"
+            bottomTab = .output
+            return
+        }
+        setToolDiagnostics(from: analyzer.source, found)
+        let count = found.values.reduce(0) { $0 + $1.count }
+        flashStatus(String(format: "%@: %d problem%@ (%.1fs)", analyzer.displayName, count, count == 1 ? "" : "s",
+                           Date().timeIntervalSince(started)))
+        if count > 0 { bottomTab = .problems }
+    }
+
     func stopRun() {
         if isDebugging { return stopDebugging() }
         runProcess?.interrupt()
