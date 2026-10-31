@@ -303,7 +303,8 @@ import PHPIDECore
         await second.openFolder(dir)
         #expect(second.documents.map(\.name) == ["index.php", "a.php", "b.php"])
         #expect(second.activeDocument?.name == "a.php")
-        #expect(SessionStore.recentProjects.first?.path == dir.path)
+        // Other suites open folders concurrently and may record theirs too: check membership, not order.
+        #expect(SessionStore.recentProjects.contains { $0.path == dir.path })
         await second.shutdown()
     }
 }
