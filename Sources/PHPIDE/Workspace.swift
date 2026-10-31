@@ -1946,7 +1946,9 @@ final class Workspace {
                 session.abandon()
                 return fail("Xdebug isn't installed for \(php.path).\nUse PHP ▸ Install Xdebug (runs \(Xdebug.installHint)).\n")
             }
-            var adapter = PHPDebugAdapter.installedScript()
+            // PHPIDE_PHP_DEBUG_JS: use a specific phpDebug.js (tests, adapter development).
+            var adapter = ProcessInfo.processInfo.environment["PHPIDE_PHP_DEBUG_JS"].map(URL.init(fileURLWithPath:))
+                ?? PHPDebugAdapter.installedScript()
             if adapter == nil {
                 appendOutput("Downloading the PHP debug adapter (vscode-php-debug \(PHPDebugAdapter.version))…\n")
                 do {

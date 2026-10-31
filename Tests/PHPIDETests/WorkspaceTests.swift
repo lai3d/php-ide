@@ -454,3 +454,73 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+/// End-to-end debugging through the Workspace: needs node, php with Xdebug, and the adapter
+/// (PHPIDE_PHP_DEBUG_JS or an installed copy); the test case also needs PHPIDE_PHPUNIT_PROJECT.
+@MainActor
+@Suite(.serialized) struct WorkspaceDebugTests {
+    nonisolated static let adapterReady = (ProcessInfo.processInfo.environment["PHPIDE_PHP_DEBUG_JS"] != nil
+        || PHPDebugAdapter.installedScript() != nil) && PHPIDECore.ToolLocator.find("node") != nil
+
+    private func waitForPause(_ workspace: Workspace) async throws -> ExecutionLocation {
+        for _ in 0..<200 where workspace.executionLocation == nil && workspace.debugSession?.isActive != false {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return try #require(workspace.executionLocation, "never paused; output:\n\(workspace.output)")
+    }
+
+    private func finish(_ workspace: Workspace) async throws {
+        workspace.stopDebugging()
+        for _ in 0..<100 where workspace.isDebugging { try await Task.sleep(for: .milliseconds(50)) }
+        await workspace.shutdown()
+    }
+
+    @Test(.enabled(if: adapterReady && WorkspacePHPUnitTests.project != nil), .timeLimit(.minutes(1)))
+    func debugsTheTestAtTheCaret() async throws {
+        let dir = URL(fileURLWithPath: try #require(WorkspacePHPUnitTests.project)).canonicalFileURL
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let test = try #require(workspace.openFile(dir.appendingPathComponent("tests/GreeterTest.php")))
+        workspace.toggleBreakpoint(in: test, line: 13)  // the assertSame line (1-based 14)
+        test.caretOffset = (test.text as NSString).range(of: "assertSame").location
+        workspace.startDebugging()  // a test file with the caret in testGreet → debug(test:)
+        let location = try await waitForPause(workspace)
+        #expect(location.path.hasSuffix("/tests/GreeterTest.php") && location.line == 14)
+        #expect(workspace.debugSession?.title == "testGreet")
+        workspace.toggleBreakpoint(in: test, line: 13)
+        try await finish(workspace)
+    }
+
+    @Test(.enabled(if: adapterReady && PHPIDECore.ToolLocator.find("php") != nil), .timeLimit(.minutes(1)))
+    func listensForAnXdebugConnection() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-listen-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        let script = dir.appendingPathComponent("index.php")
+        try "<?php\n$who = 'web';\necho \"hello $who\\n\";\n".write(to: script, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        let document = try #require(workspace.activeDocument)
+        workspace.toggleBreakpoint(in: document, line: 2)
+        let port = Int.random(in: 40000..<50000)
+        workspace.listenForXdebug(port: port)
+        for _ in 0..<100 where !workspace.output.contains("Listening on") { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(workspace.output.contains("Listening on"))
+
+        // A php run started "elsewhere" (here: a plain process) with Xdebug pointed at our port.
+        let php = try #require(PHPIDECore.ToolLocator.find("php"))
+        let xdebug = await Xdebug.status(php: php)
+        let process = Process()
+        process.executableURL = php
+        process.arguments = xdebug.runtimeArguments + ["-dxdebug.client_port=\(port)", script.path]
+        process.standardOutput = FileHandle.nullDevice
+        try process.run()
+        defer { if process.isRunning { process.terminate() } }
+
+        let location = try await waitForPause(workspace)
+        #expect(location.path == script.path && location.line == 3)
+        try await finish(workspace)
+    }
+}
