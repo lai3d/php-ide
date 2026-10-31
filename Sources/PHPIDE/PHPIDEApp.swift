@@ -292,6 +292,8 @@ struct PHPIDECommands: Commands {
                 Button("Install Xdebug (pecl install xdebug)") { workspace.installXdebug() }
                     .disabled(workspace.rootURL == nil || workspace.xdebugStatus?.isAvailable == true)
                 Menu("Composer") {
+                    Button("Packages…") { workspace.showPackages() }
+                    Divider()
                     Button("Install (composer install)") { workspace.runTool("composer", ["install", "--no-interaction"]) }
                     Button("Update (composer update)") { workspace.runTool("composer", ["update", "--no-interaction"]) }
                     Button("Dump Autoload (composer dump-autoload)") { workspace.runTool("composer", ["dump-autoload"]) }

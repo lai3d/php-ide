@@ -740,3 +740,41 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspaceComposerPackagesTests {
+    private func waitForCommand(_ workspace: Workspace) async throws {
+        for _ in 0..<1200 where workspace.isRunning || !workspace.output.contains("[process exited") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try await Task.sleep(for: .milliseconds(100))  // completion handler refreshes the list
+    }
+
+    /// Needs network access to Packagist.
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("composer") != nil), .timeLimit(.minutes(2)))
+    func requiresListsAndRemovesAPackage() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-packages-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        try #"{"name": "t/t", "require": {"php": ">=8.1"}}"#.write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+        workspace.showPackages()
+        #expect(workspace.isShowingPackages && workspace.packages.map(\.name) == ["php"])
+
+        workspace.requirePackage("psr/log:^3.0", dev: false)
+        try await waitForCommand(workspace)
+        let log = try #require(workspace.packages.first { $0.name == "psr/log" }, "\(workspace.output)")
+        #expect(log.constraint.hasPrefix("^3") && log.installed?.hasPrefix("3.") == true && !log.isDev)
+
+        await workspace.checkOutdatedPackages()
+        #expect(!workspace.isCheckingOutdated && workspace.didCheckOutdated)
+
+        workspace.removePackage(log)
+        try await waitForCommand(workspace)
+        #expect(!workspace.packages.contains { $0.name == "psr/log" })
+        await workspace.shutdown()
+    }
+}

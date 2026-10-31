@@ -166,7 +166,7 @@ enum Snapshot {
                 workspace.commitMessage = "Refine order summary"
                 try? await Task.sleep(for: .milliseconds(500))
             }
-            if let command = value("--snapshot-run"), let workspace {
+            if let command = value("--snapshot-command"), let workspace {
                 let words = command.split(separator: " ").map(String.init)  // "composer validate", "php index.php"
                 workspace.runTool(words[0], Array(words.dropFirst()))
                 for _ in 0..<100 where workspace.isRunning { try? await Task.sleep(for: .milliseconds(100)) }
@@ -203,6 +203,11 @@ enum Snapshot {
                     print("run output:\n" + workspace.output)
                 }
                 workspace.isEditingRunConfigurations = true
+                try? await Task.sleep(for: .milliseconds(800))
+            }
+            if args.contains("--snapshot-packages"), let workspace {
+                workspace.showPackages()
+                if args.contains("--snapshot-outdated") { await workspace.checkOutdatedPackages() }
                 try? await Task.sleep(for: .milliseconds(800))
             }
             if args.contains("--snapshot-format"), let workspace {

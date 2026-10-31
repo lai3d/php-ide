@@ -2075,6 +2075,65 @@ final class Workspace {
         }
     }
 
+    // MARK: - Composer packages
+
+    var isShowingPackages = false
+    /// Direct dependencies from composer.json (with lock / outdated info).
+    private(set) var packages: [ComposerPackage] = []
+    private(set) var isCheckingOutdated = false
+    /// Latest versions have been looked up (packages without an entry are then up to date).
+    private(set) var didCheckOutdated = false
+    @ObservationIgnored private var outdated: [String: (latest: String, status: String)] = [:]
+
+    func showPackages() {
+        refreshPackages()
+        isShowingPackages = true
+    }
+
+    func refreshPackages() {
+        guard let rootURL else { return }
+        packages = Composer.packages(in: rootURL).map { package in
+            var package = package
+            if let info = outdated[package.name.lowercased()] {
+                package.latest = info.latest
+                package.latestStatus = info.status
+            }
+            return package
+        }
+    }
+
+    /// `composer outdated --direct` → latest versions in the Packages list.
+    func checkOutdatedPackages() async {
+        guard let rootURL, !isCheckingOutdated, let composer = ToolLocator.find("composer") else { return }
+        isCheckingOutdated = true
+        defer { isCheckingOutdated = false }
+        let result = await ProcessRunner.run(composer, ["outdated", "--direct", "--format=json", "--no-interaction"], in: rootURL)
+        outdated = Composer.parseOutdated(result.output)
+        didCheckOutdated = result.status == 0
+        refreshPackages()
+    }
+
+    /// `composer require [--dev] name[:constraint]`, then refreshes the list.
+    func requirePackage(_ spec: String, dev: Bool) {
+        runComposer(["require"] + (dev ? ["--dev"] : []) + [spec, "--no-interaction"])
+    }
+
+    func removePackage(_ package: ComposerPackage) {
+        runComposer(["remove"] + (package.isDev ? ["--dev"] : []) + [package.name, "--no-interaction"])
+    }
+
+    func updatePackage(_ package: ComposerPackage) {
+        outdated.removeValue(forKey: package.name.lowercased())
+        runComposer(["update", package.name, "--with-dependencies", "--no-interaction"])
+    }
+
+    private func runComposer(_ arguments: [String]) {
+        runTool("composer", arguments) { _ in
+            self.refreshPackages()
+            self.refreshScripts()
+        }
+    }
+
     // MARK: - Xdebug
 
     /// Last known Xdebug availability (nil until probed).

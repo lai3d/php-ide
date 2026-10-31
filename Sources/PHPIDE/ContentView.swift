@@ -60,6 +60,10 @@ struct ContentView: View {
                                     set: { workspace.isEditingRunConfigurations = $0 })) {
             RunConfigurationsSheet().environment(workspace)
         }
+        .sheet(isPresented: Binding(get: { workspace.isShowingPackages },
+                                    set: { workspace.isShowingPackages = $0 })) {
+            ComposerPackagesSheet().environment(workspace)
+        }
     }
 }
 
