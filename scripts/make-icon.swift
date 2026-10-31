@@ -6,24 +6,24 @@ let size: CGFloat = 1024
 let image = NSImage(size: NSSize(width: size, height: size))
 image.lockFocus()
 
-// macOS-style rounded square with Go's cyan, light to deep.
+// macOS-style rounded square in PHP's violet (#777BB3), light to deep.
 let inset: CGFloat = 100
 let rect = NSRect(x: inset, y: inset, width: size - 2 * inset, height: size - 2 * inset)
 let shape = NSBezierPath(roundedRect: rect, xRadius: 185, yRadius: 185)
 NSShadow().apply { $0.shadowColor = .black.withAlphaComponent(0.3); $0.shadowBlurRadius = 30; $0.shadowOffset = NSSize(width: 0, height: -12) }
-NSGradient(starting: NSColor(red: 0.30, green: 0.83, blue: 0.93, alpha: 1),
-           ending: NSColor(red: 0.00, green: 0.42, blue: 0.62, alpha: 1))!.draw(in: shape, angle: -90)
+NSGradient(starting: NSColor(red: 0.60, green: 0.62, blue: 0.85, alpha: 1),
+           ending: NSColor(red: 0.29, green: 0.30, blue: 0.53, alpha: 1))!.draw(in: shape, angle: -90)
 NSShadow().apply { $0.shadowColor = nil }
 
-// "Go" plus a terminal-style underscore cursor: "Go_".
-let font = NSFont.systemFont(ofSize: 380, weight: .black)
-let rounded = font.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 380) } ?? font
-let text = NSAttributedString(string: "Go", attributes: [.font: rounded, .foregroundColor: NSColor.white])
+// "php" plus a terminal-style underscore cursor: "php_".
+let font = NSFont.systemFont(ofSize: 300, weight: .black)
+let rounded = font.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 300) } ?? font
+let text = NSAttributedString(string: "php", attributes: [.font: rounded, .foregroundColor: NSColor.white])
 let textSize = text.size()
-let cursorWidth: CGFloat = 130, gap: CGFloat = 26
+let cursorWidth: CGFloat = 110, gap: CGFloat = 22
 let origin = NSPoint(x: (size - textSize.width - gap - cursorWidth) / 2, y: (size - textSize.height) / 2 + 10)
 text.draw(at: origin)
-NSColor(red: 0.80, green: 1, blue: 1, alpha: 0.95).setFill()
+NSColor(red: 0.86, green: 0.87, blue: 1, alpha: 0.95).setFill()
 NSBezierPath(roundedRect: NSRect(x: origin.x + textSize.width + gap, y: origin.y + rounded.descender.magnitude * 0.55,
                                  width: cursorWidth, height: 46), xRadius: 14, yRadius: 14).fill()
 image.unlockFocus()

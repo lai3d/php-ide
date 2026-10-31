@@ -43,7 +43,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.7b | ✅ Tool settings | php / composer / node / intelephense / phpactor paths, server picker, licence key (done in 1.1) | — |
 | 1.7c | ✅ PHP completion triggers | Fresh completions on `->` / `?->` / `::` / `$` / `\` (was Go's `.`); a variable's `$` belongs to the prefix (no `$$greeter`) | 0.2h |
 | 1.8 | ⬜ CI toolchain | GitHub Actions: PHP + Xdebug, Composer, Node + Intelephense, a PHPUnit/PHPStan fixture project and the debug adapter, so the end-to-end tests run on every push | 0.4h |
-| 1.8a | ⬜ App icon | PHP-themed icon (elephant-violet) from `scripts/make-icon.swift` | 0.1h |
+| 1.8a | ✅ App icon | PHP-themed icon (elephant-violet) from `scripts/make-icon.swift` | 0.1h |
 | 1.8b | ⬜ Release v0.1.0 | Tag-triggered `PHPIDE-vX.Y.Z.zip`, release notes list the requirements (php, node + intelephense; Xdebug optional) | 0.2h |
 | 1.8c | ⬜ IDE Toolbox entry | Add PHPIDE to the Toolbox catalog (separate repo, via a worktree + PR) | 0.2h |
 

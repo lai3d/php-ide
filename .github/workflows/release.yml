@@ -25,4 +25,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" build/PHPIDE.zip \
             --title "PHPIDE $GITHUB_REF_NAME" \
             --generate-notes \
-            --notes "Ad-hoc signed build: the first time, right-click PHPIDE.app and choose Open (or run: xattr -dr com.apple.quarantine PHPIDE.app). Requires macOS 14+, Go, gopls and dlv."
+            --notes "Ad-hoc signed build: the first time, right-click PHPIDE.app and choose Open (or run: xattr -dr com.apple.quarantine PHPIDE.app). Requires macOS 14+, PHP (brew install php composer) and Intelephense (brew install node && npm install -g intelephense). Debugging needs Xdebug (pecl install xdebug, or PHP ▸ Install Xdebug); the debug adapter downloads on first use."
