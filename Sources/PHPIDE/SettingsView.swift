@@ -53,18 +53,32 @@ private struct EditorSettingsTab: View {
 
 private struct ToolsSettingsTab: View {
     @Environment(Workspace.self) private var workspace
+    @AppStorage(PHPLanguageServer.preferenceKey) private var languageServer = "intelephense"
+    @AppStorage(PHPLanguageServer.licenceKeyDefaultsKey) private var licenceKey = ""
 
     var body: some View {
         Form {
             Section {
-                ToolPathRow(name: "go", hint: "https://go.dev/dl/")
-                ToolPathRow(name: "gopls", hint: "go install golang.org/x/tools/gopls@latest")
-                ToolPathRow(name: "dlv", hint: "go install github.com/go-delve/delve/cmd/dlv@latest")
+                ToolPathRow(name: "php", hint: "brew install php")
+                ToolPathRow(name: "composer", hint: "brew install composer")
+                ToolPathRow(name: "node", hint: "brew install node  (runs Intelephense)")
+                ToolPathRow(name: "intelephense", hint: "npm install -g intelephense")
+                ToolPathRow(name: "phpactor", hint: "brew install phpactor")
             } footer: {
-                Text("Leave empty to search PATH, $GOBIN, $GOPATH/bin, ~/go/bin and Homebrew.")
+                Text("Leave empty to search PATH, Homebrew, Composer's global vendor/bin and npm's global bin.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Button("Restart gopls") { Task { await workspace.restartLanguageServer() } }
+            Section {
+                Picker("Language server", selection: $languageServer) {
+                    Text("Intelephense").tag("intelephense")
+                    Text("Phpactor").tag("phpactor")
+                }
+                SecureField("Intelephense licence key", text: $licenceKey, prompt: Text("Optional — unlocks rename, code actions, folding"))
+            } footer: {
+                Text("Falls back to the other server when the chosen one isn't installed. Restart the server to apply.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button("Restart Language Server") { Task { await workspace.restartLanguageServer() } }
                 .disabled(workspace.rootURL == nil)
         }
     }

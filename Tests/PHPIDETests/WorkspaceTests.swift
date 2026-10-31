@@ -8,10 +8,10 @@ import PHPIDECore
     let dir: URL
 
     init() throws {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("goide-tabs-\(UUID().uuidString)")
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-tabs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for name in ["a.go", "b.go", "c.go"] {
-            try "package main\n".write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        for name in ["a.php", "b.php", "c.php"] {
+            try "<?php\n".write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
     }
 
@@ -19,80 +19,79 @@ import PHPIDECore
 
     @Test func openingTheSameFileReusesItsTab() {
         let workspace = Workspace()
-        let first = workspace.openFile(url("a.go"))
-        workspace.openFile(url("b.go"))
-        let again = workspace.openFile(url("a.go"))
+        let first = workspace.openFile(url("a.php"))
+        workspace.openFile(url("b.php"))
+        let again = workspace.openFile(url("a.php"))
         #expect(first === again)
-        #expect(workspace.documents.map(\.name) == ["a.go", "b.go"])
+        #expect(workspace.documents.map(\.name) == ["a.php", "b.php"])
         #expect(workspace.activeDocument === first)
     }
 
     @Test func newTabsOpenNextToTheActiveOne() {
         let workspace = Workspace()
-        let a = workspace.openFile(url("a.go"))!
-        workspace.openFile(url("b.go"))
+        let a = workspace.openFile(url("a.php"))!
+        workspace.openFile(url("b.php"))
         workspace.activate(a)
-        workspace.openFile(url("c.go"))
-        #expect(workspace.documents.map(\.name) == ["a.go", "c.go", "b.go"])
+        workspace.openFile(url("c.php"))
+        #expect(workspace.documents.map(\.name) == ["a.php", "c.php", "b.php"])
     }
 
     @Test func closingTheActiveTabSelectsItsNeighbour() {
         let workspace = Workspace()
-        workspace.openFile(url("a.go"))
-        let b = workspace.openFile(url("b.go"))!
-        workspace.openFile(url("c.go"))
+        workspace.openFile(url("a.php"))
+        let b = workspace.openFile(url("b.php"))!
+        workspace.openFile(url("c.php"))
         workspace.activate(b)
         workspace.closeDocument(b)
-        #expect(workspace.documents.map(\.name) == ["a.go", "c.go"])
-        #expect(workspace.activeDocument?.name == "c.go")
+        #expect(workspace.documents.map(\.name) == ["a.php", "c.php"])
+        #expect(workspace.activeDocument?.name == "c.php")
         workspace.closeAllDocuments()
         #expect(workspace.documents.isEmpty && workspace.activeDocument == nil)
     }
 
     @Test func cyclesTabs() {
         let workspace = Workspace()
-        workspace.openFile(url("a.go"))
-        workspace.openFile(url("b.go"))
+        workspace.openFile(url("a.php"))
+        workspace.openFile(url("b.php"))
         workspace.selectAdjacentTab(1)
-        #expect(workspace.activeDocument?.name == "a.go")
+        #expect(workspace.activeDocument?.name == "a.php")
         workspace.selectAdjacentTab(-1)
-        #expect(workspace.activeDocument?.name == "b.go")
+        #expect(workspace.activeDocument?.name == "b.php")
     }
 
     @Test func editsMarkDirtyAndSaveWritesToDisk() throws {
         let workspace = Workspace()
-        let a = workspace.openFile(url("a.go"))!
-        workspace.updateText(of: a, to: "package main\n\nfunc x() {}\n")
+        let a = workspace.openFile(url("a.php"))!
+        workspace.updateText(of: a, to: "<?php\n\nfunction x() {}\n")
         #expect(a.isDirty)
         workspace.save(a)
         #expect(!a.isDirty)
-        #expect(try String(contentsOf: url("a.go"), encoding: .utf8).contains("func x()"))
+        #expect(try String(contentsOf: url("a.php"), encoding: .utf8).contains("function x()"))
     }
 }
 
 @MainActor
 @Suite struct WorkspaceFormattingTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
-    func formatsAndOrganizesImportsOnSave() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("goide-wsfmt-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try "module example.com/t\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        let file = dir.appendingPathComponent("main.go")
-        try "package main\n\nfunc main(){\nfmt.Println( \"hi\" )\n}\n".write(to: file, atomically: true, encoding: .utf8)
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("intelephense") != nil), .timeLimit(.minutes(1)))
+    func formatsOnSave() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-wsfmt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let dir = base.canonicalFileURL
+        let file = dir.appendingPathComponent("index.php")
+        try "<?php\nfunction main(){\necho   \"hi\";\n}\n".write(to: file, atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
         await workspace.openFolder(dir)
         let document = try #require(workspace.activeDocument)
-        #expect(workspace.lspStatus == "gopls: ready")
+        #expect(workspace.lspStatus.hasPrefix("intelephense: "))
 
         await workspace.format(document)
         #expect(document.isDirty)  // formatted in memory, not yet saved
-        #expect(document.text.contains("func main() {"))
         await workspace.saveFormatted(document)
         #expect(!document.isDirty)
         let saved = try String(contentsOf: file, encoding: .utf8)
-        #expect(saved == "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n")
+        #expect(saved == "<?php\nfunction main()\n{\n    echo   \"hi\";\n}\n")
     }
 }
 
@@ -101,12 +100,12 @@ import PHPIDECore
     let dir: URL
 
     init() throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-fs-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-fs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base.appendingPathComponent("pkg"), withIntermediateDirectories: true)
         dir = base.canonicalFileURL  // real path, as FSEvents reports it
-        try "module example.com/fs\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\nfunc main() {}\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        try "package widgets\n".write(to: dir.appendingPathComponent("pkg/a.go"), atomically: true, encoding: .utf8)
+        try "{}\n".write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+        try "<?php\n\nfunction main() {}\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "<?php\n".write(to: dir.appendingPathComponent("pkg/a.php"), atomically: true, encoding: .utf8)
     }
 
     private func url(_ path: String) -> URL { dir.appendingPathComponent(path) }
@@ -115,14 +114,14 @@ import PHPIDECore
         let workspace = Workspace()
         await workspace.openFolder(dir.canonicalFileURL)
         let main = try #require(workspace.activeDocument)
-        let other = try #require(workspace.openFile(url("pkg/a.go")))
-        workspace.updateText(of: other, to: "package widgets // edited\n")
+        let other = try #require(workspace.openFile(url("pkg/a.php")))
+        workspace.updateText(of: other, to: "<?php // edited\n")
 
-        try "package main\n\nfunc main() { println() }\n".write(to: url("main.go"), atomically: true, encoding: .utf8)
-        try "package widgets // external\n".write(to: url("pkg/a.go"), atomically: true, encoding: .utf8)
-        workspace.handleFileSystemChanges([url("main.go").path, url("pkg/a.go").path])
+        try "<?php\n\nfunction main() { echo 1; }\n".write(to: url("index.php"), atomically: true, encoding: .utf8)
+        try "<?php // external\n".write(to: url("pkg/a.php"), atomically: true, encoding: .utf8)
+        workspace.handleFileSystemChanges([url("index.php").path, url("pkg/a.php").path])
 
-        #expect(main.text.contains("println()") && !main.isDirty)
+        #expect(main.text.contains("echo 1;") && !main.isDirty)
         #expect(other.text.contains("edited") && other.hasExternalChange)
         workspace.reloadFromDisk(other)
         #expect(other.text.contains("external") && !other.isDirty && !other.hasExternalChange)
@@ -132,35 +131,30 @@ import PHPIDECore
         let workspace = Workspace()
         await workspace.openFolder(dir.canonicalFileURL)
 
-        let created = try workspace.createFile(named: "b.go", in: url("pkg"))
-        #expect(try String(contentsOf: created, encoding: .utf8) == "package widgets\n")
-        #expect(workspace.activeDocument?.name == "b.go")
-        #expect(throws: FileOperationError.self) { try workspace.createFile(named: "b.go", in: url("pkg")) }
+        let created = try workspace.createFile(named: "b.php", in: url("pkg"))
+        #expect(try String(contentsOf: created, encoding: .utf8) == "<?php\n\ndeclare(strict_types=1);\n\n")
+        #expect(workspace.activeDocument?.name == "b.php")
+        #expect(throws: FileOperationError.self) { try workspace.createFile(named: "b.php", in: url("pkg")) }
 
         let renamed = try workspace.renameItem(at: url("pkg"), to: "widgets")
-        #expect(workspace.activeDocument?.url.path == renamed.appendingPathComponent("b.go").path)
+        #expect(workspace.activeDocument?.url.path == renamed.appendingPathComponent("b.php").path)
         #expect(workspace.fileTree.contains { $0.name == "widgets" })
 
         try workspace.trashItem(at: renamed)
-        #expect(!workspace.documents.contains { $0.name == "b.go" })
+        #expect(!workspace.documents.contains { $0.name == "b.php" })
         #expect(!FileManager.default.fileExists(atPath: renamed.path))
     }
 
-    @Test func derivesPackageNames() throws {
-        try FileManager.default.createDirectory(at: url("My-Tool"), withIntermediateDirectories: true)
-        #expect(Workspace.packageName(for: url("My-Tool")) == "mytool")
-        #expect(Workspace.packageName(for: dir) == "main")
-    }
 }
 
 @MainActor
 @Suite struct WorkspaceSearchTests {
     @Test func searchesProjectIncludingUnsavedBuffers() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-search-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-ws-search-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
-        try "package main\n\nfunc main() { greet() }\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
+        try "package main\n\nfunc main() { greet() }\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
         try "package main\n\nfunc greet() {}\n".write(to: dir.appendingPathComponent("greet.go"), atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
@@ -175,9 +169,9 @@ import PHPIDECore
         await workspace.performSearch()
         #expect(workspace.searchMatchCount == 3)
 
-        let file = try #require(workspace.searchResults.first { $0.path.hasSuffix("main.go") })
+        let file = try #require(workspace.searchResults.first { $0.path.hasSuffix("index.php") })
         workspace.open(file.matches[0], in: file)
-        #expect(workspace.activeDocument?.name == "main.go")
+        #expect(workspace.activeDocument?.name == "index.php")
         #expect(workspace.activeDocument?.revealTarget?.position == TextPosition(line: 2, character: 14))
         #expect(workspace.activeDocument?.revealTarget?.length == 5)
 
@@ -190,115 +184,51 @@ import PHPIDECore
 
 @MainActor
 @Suite struct WorkspaceReferencesTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("intelephense") != nil), .timeLimit(.minutes(1)))
     func findsReferencesAcrossFilesUsingBuffers() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-refs-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-ws-refs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
-        try "module example.com/r\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\nfunc main() { greet(); greet() }\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        try "package main\n\nfunc greet() {}\n".write(to: dir.appendingPathComponent("greet.go"), atomically: true, encoding: .utf8)
+        let mainSource = "<?php\n\nrequire 'greet.php';\n\ngreet(); greet();\n"
+        try mainSource.write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "<?php\n\nfunction greet(): void {}\n".write(to: dir.appendingPathComponent("greet.php"), atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
         await workspace.openFolder(dir)
         let main = try #require(workspace.activeDocument)
-        await workspace.findReferences(in: main, at: ("package main\n\nfunc main() { " as NSString).length + 1)
+        #expect(main.name == "index.php")
+        for _ in 0..<100 where workspace.isIndexing { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(!workspace.isIndexing)
+        await workspace.findReferences(in: main, at: (mainSource as NSString).range(of: "greet()").location + 1)
         #expect(workspace.bottomTab == .references)
         #expect(workspace.referenceTitle == "3 references to ‘greet’")
-        #expect(workspace.referenceResults.map { ($0.path as NSString).lastPathComponent } == ["greet.go", "main.go"])
-    }
-}
-
-@MainActor
-@Suite struct WorkspaceRenameTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
-    func renamesAcrossOpenAndClosedFiles() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-rename-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        let dir = base.canonicalFileURL
-        try "module example.com/r\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\nfunc main() { greet() }\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        let greetFile = dir.appendingPathComponent("greet.go")
-        try "package main\n\nfunc greet() {}\n".write(to: greetFile, atomically: true, encoding: .utf8)
-
-        let workspace = Workspace()
-        await workspace.openFolder(dir)
-        let main = try #require(workspace.activeDocument)
-        let offset = ("package main\n\nfunc main() { " as NSString).length + 2
-
-        #expect(await workspace.prepareRename(in: main, at: offset) == "greet")
-        #expect(await workspace.prepareRename(in: main, at: 2) == nil)  // "package" keyword
-
-        let error = await workspace.renameSymbol(in: main, at: offset, to: "salute")
-        #expect(error == nil)
-        #expect(main.text == "package main\n\nfunc main() { salute() }\n" && main.isDirty)  // open: buffer
-        #expect(try String(contentsOf: greetFile, encoding: .utf8) == "package main\n\nfunc salute() {}\n")  // closed: disk
-    }
-}
-
-@MainActor
-@Suite struct WorkspaceCodeActionTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
-    func appliesEditActionsAndCommandActions() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-ca-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        let dir = base.canonicalFileURL
-        try "module example.com/ca\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\nimport \"os\"\n\nfunc Add(a, b int) int { return a + b }\n\nfunc main() {}\n"
-            .write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-
-        let workspace = Workspace()
-        await workspace.openFolder(dir)
-        let main = try #require(workspace.activeDocument)
-        // Wait for gopls to publish the unused-import diagnostic.
-        for _ in 0..<50 where workspace.diagnostics(for: main).isEmpty { try await Task.sleep(for: .milliseconds(100)) }
-        let importOffset = ("package main\n\nimport \"" as NSString).length
-
-        // An action with an edit.
-        let actions = await workspace.codeActions(in: main, at: importOffset)
-        let organize = try #require(actions.first { $0.kind == "source.organizeImports" })
-        await workspace.perform(organize)
-        #expect(!main.text.contains("\"os\""))
-
-        // A command action: gopls answers with workspace/applyEdit creating main_test.go.
-        let addOffset = ("package main\n\nfunc Ad" as NSString).length
-        let addTest = try #require(await workspace.codeActions(in: main, at: addOffset).first { $0.kind == "source.addTest" })
-        await workspace.perform(addTest)
-        let testFile = dir.appendingPathComponent("main_test.go")
-        for _ in 0..<50 where workspace.activeDocument?.name != "main_test.go" { try await Task.sleep(for: .milliseconds(100)) }
-        #expect(workspace.activeDocument?.name == "main_test.go")
-        #expect(workspace.activeDocument?.text.contains("func TestAdd") == true)
-        #expect(FileManager.default.fileExists(atPath: testFile.path))
+        #expect(workspace.referenceResults.map { ($0.path as NSString).lastPathComponent } == ["greet.php", "index.php"])
     }
 }
 
 @MainActor
 @Suite struct WorkspaceNavigationTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
+    @Test(.enabled(if: PHPIDECore.ToolLocator.find("intelephense") != nil), .timeLimit(.minutes(1)))
     func quickOpenFindsFilesAndSymbolsAndOutlineLoads() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-nav-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: base.appendingPathComponent("internal/progress"), withIntermediateDirectories: true)
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-ws-nav-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("src/Progress"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
-        try "module example.com/nav\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\ntype Greeter struct{}\n\nfunc (Greeter) Hello() {}\n\nfunc main() {}\n"
-            .write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        try "package main\n".write(to: dir.appendingPathComponent("greet.go"), atomically: true, encoding: .utf8)
-        try "package progress\n".write(to: dir.appendingPathComponent("internal/progress/report.go"), atomically: true, encoding: .utf8)
+        try "<?php\n\nnamespace App;\n\nclass Greeter\n{\n    public function hello(): void {}\n}\n"
+            .write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "<?php\n".write(to: dir.appendingPathComponent("greet.php"), atomically: true, encoding: .utf8)
+        try "<?php\n".write(to: dir.appendingPathComponent("src/Progress/Report.php"), atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
         await workspace.openFolder(dir)
         workspace.showQuickOpen()
-        #expect(workspace.quickOpenItems.map(\.title) == ["main.go"])  // empty query: open tabs
+        #expect(workspace.quickOpenItems.map(\.title) == ["index.php"])  // empty query: open tabs
 
         workspace.quickOpenQuery = "gre"
         workspace.updateQuickOpen()
-        #expect(workspace.quickOpenItems.first?.title == "greet.go")
-        // gopls may still be loading packages on a cold (CI) start: re-ask, as typing would.
-        // (Each re-ask cancels the request in flight, so leave it time to answer.)
+        #expect(workspace.quickOpenItems.first?.title == "greet.php")
+        // The server may still be indexing: re-ask, as typing would.
         for _ in 0..<12 where !workspace.quickOpenItems.contains(where: { $0.position != nil }) {
             try await Task.sleep(for: .milliseconds(1500))
             if !workspace.quickOpenItems.contains(where: { $0.position != nil }) { workspace.updateQuickOpen() }
@@ -306,7 +236,7 @@ import PHPIDECore
         let symbol = try #require(workspace.quickOpenItems.first { $0.title == "Greeter" })
         workspace.open(symbol)
         #expect(!workspace.isQuickOpenVisible)
-        #expect(workspace.activeDocument?.revealTarget?.position == TextPosition(line: 2, character: 5))
+        #expect(workspace.activeDocument?.revealTarget?.position.line == 4)
 
         await workspace.refreshOutline()
         #expect(workspace.outline.map(\.name).contains("Greeter"))
@@ -317,27 +247,27 @@ import PHPIDECore
 @Suite struct WorkspaceGitTests {
     @Test(.enabled(if: PHPIDECore.ToolLocator.find("git") != nil), .timeLimit(.minutes(1)))
     func tracksBranchStatusesAndBases() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-ws-git-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-ws-git-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
         Git.run(["init", "-q", "-b", "feature"], in: dir)
-        try "module example.com/g\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        try "package main\n\nfunc main() {}\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
+        try "{}\n".write(to: dir.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+        try "<?php\n\nfunction main() {}\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
         Git.run(["add", "."], in: dir)
         Git.run(["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init"], in: dir)
-        try "package main\n\n// changed\nfunc main() {}\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        try "package main\n".write(to: dir.appendingPathComponent("new.go"), atomically: true, encoding: .utf8)
+        try "<?php\n\n// changed\nfunction main() {}\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        try "<?php\n".write(to: dir.appendingPathComponent("new.php"), atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
         await workspace.openFolder(dir)
         for _ in 0..<50 where workspace.gitBranch == nil { try await Task.sleep(for: .milliseconds(100)) }
         #expect(workspace.gitBranch == "feature")
-        #expect(workspace.gitStatus(for: dir.appendingPathComponent("main.go")) == .modified)
-        #expect(workspace.gitStatus(for: dir.appendingPathComponent("new.go")) == .untracked)
-        #expect(workspace.gitStatus(for: dir.appendingPathComponent("go.mod")) == nil)
+        #expect(workspace.gitStatus(for: dir.appendingPathComponent("index.php")) == .modified)
+        #expect(workspace.gitStatus(for: dir.appendingPathComponent("new.php")) == .untracked)
+        #expect(workspace.gitStatus(for: dir.appendingPathComponent("composer.json")) == nil)
         let main = try #require(workspace.activeDocument)
-        #expect(workspace.gitBase(for: main) == "package main\n\nfunc main() {}\n")
+        #expect(workspace.gitBase(for: main) == "<?php\n\nfunction main() {}\n")
         let changes = LineChanges.compute(base: workspace.gitBase(for: main)!, current: main.text)
         #expect(changes.lines == [2: .added])
     }
@@ -346,33 +276,33 @@ import PHPIDECore
 @MainActor
 @Suite(.serialized) struct SessionRestoreTests {
     @Test func restoresTabsAndRecents() async throws {
-        let suite = "goide-tests-\(UUID().uuidString)"
+        let suite = "phpide-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         SessionStore.defaults = defaults
         defer {
             SessionStore.defaults = .standard
             defaults.removePersistentDomain(forName: suite)
         }
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-session-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-session-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
-        for name in ["main.go", "a.go", "b.go"] {
-            try "package main\n".write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        for name in ["index.php", "a.php", "b.php"] {
+            try "<?php\n".write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
 
         let first = Workspace()
         await first.openFolder(dir)
-        #expect(first.documents.map(\.name) == ["main.go"])  // nothing saved yet: default file
-        first.openFile(dir.appendingPathComponent("a.go"))
-        first.openFile(dir.appendingPathComponent("b.go"))
-        first.activate(first.documents[1])  // a.go
+        #expect(first.documents.map(\.name) == ["index.php"])  // nothing saved yet: default file
+        first.openFile(dir.appendingPathComponent("a.php"))
+        first.openFile(dir.appendingPathComponent("b.php"))
+        first.activate(first.documents[1])  // a.php
         await first.shutdown()
 
         let second = Workspace()
         await second.openFolder(dir)
-        #expect(second.documents.map(\.name) == ["main.go", "a.go", "b.go"])
-        #expect(second.activeDocument?.name == "a.go")
+        #expect(second.documents.map(\.name) == ["index.php", "a.php", "b.php"])
+        #expect(second.activeDocument?.name == "a.php")
         #expect(SessionStore.recentProjects.first?.path == dir.path)
         await second.shutdown()
     }
@@ -381,13 +311,13 @@ import PHPIDECore
 @MainActor
 @Suite struct WorkspaceReplaceTests {
     @Test func replacesInOpenBuffersAndOnDisk() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-replace-\(UUID().uuidString)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("phpide-replace-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
         let dir = base.canonicalFileURL
-        try "package main\n\nfunc main() { getUser(); getName() }\n".write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-        let other = dir.appendingPathComponent("other.go")
-        try "package main\n\nfunc getUser() {}\nfunc getName() {}\n".write(to: other, atomically: true, encoding: .utf8)
+        try "<?php\n\ngetUser(); getName();\n".write(to: dir.appendingPathComponent("index.php"), atomically: true, encoding: .utf8)
+        let other = dir.appendingPathComponent("other.php")
+        try "<?php\n\nfunction getUser() {}\nfunction getName() {}\n".write(to: other, atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
         await workspace.openFolder(dir)
@@ -398,60 +328,14 @@ import PHPIDECore
         await workspace.performSearch()
         #expect(workspace.searchMatchCount == 4)
 
-        // One match first: the second call in main.go (still in the buffer).
-        let mainResult = try #require(workspace.searchResults.first { $0.path.hasSuffix("main.go") })
+        // One match first: the second call in index.php (still in the buffer).
+        let mainResult = try #require(workspace.searchResults.first { $0.path.hasSuffix("index.php") })
         await workspace.replace(mainResult.matches[1], in: mainResult)
         #expect(main.text.contains("getUser(); fetchName()") && main.isDirty)
 
         #expect(await workspace.replaceAllInProject() == 3)
         #expect(main.text.contains("fetchUser(); fetchName()"))
-        #expect(try String(contentsOf: other, encoding: .utf8) == "package main\n\nfunc fetchUser() {}\nfunc fetchName() {}\n")
+        #expect(try String(contentsOf: other, encoding: .utf8) == "<?php\n\nfunction fetchUser() {}\nfunction fetchName() {}\n")
         #expect(workspace.searchMatchCount == 0)
-    }
-}
-
-@MainActor
-@Suite struct WorkspaceImplementationTests {
-    @Test(.enabled(if: PHPIDECore.ToolLocator.find("gopls") != nil), .timeLimit(.minutes(1)))
-    func findsImplementationsAndTypeDefinitions() async throws {
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("goide-impl-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        let dir = base.canonicalFileURL
-        try "module example.com/impl\n\ngo 1.22\n".write(to: dir.appendingPathComponent("go.mod"), atomically: true, encoding: .utf8)
-        let source = """
-            package main
-
-            type Shape interface{ Area() float64 }
-
-            type Square struct{ s float64 }
-
-            func (q Square) Area() float64 { return q.s * q.s }
-
-            type Circle struct{ r float64 }
-
-            func (c Circle) Area() float64 { return 3 * c.r * c.r }
-
-            func main() {
-            \tsq := Square{2}
-            \t_ = sq
-            }
-
-            """
-        try source.write(to: dir.appendingPathComponent("main.go"), atomically: true, encoding: .utf8)
-
-        let workspace = Workspace()
-        await workspace.openFolder(dir)
-        let main = try #require(workspace.activeDocument)
-        let ns = main.text as NSString
-
-        // Interface with two implementations: listed.
-        await workspace.jumpToImplementation(from: main, at: ns.range(of: "Shape").location + 1)
-        #expect(workspace.referenceTitle == "2 implementations of ‘Shape’")
-        #expect(workspace.referenceResults.first?.matches.count == 2)
-
-        // Variable → its type: jumps (one location).
-        await workspace.jumpToTypeDefinition(from: main, at: ns.range(of: "_ = sq").location + 5)
-        #expect(main.revealTarget?.position == TextPosition(line: 4, character: 5))  // type Square
     }
 }

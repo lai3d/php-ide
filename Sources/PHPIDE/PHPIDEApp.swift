@@ -44,7 +44,7 @@ extension FocusedValues {
     }
 }
 
-/// One window = one project (its own documents, gopls, debugger).
+/// One window = one project (its own documents, language server, debugger).
 struct WorkspaceWindow: View {
     @State private var workspace = Workspace()
 
@@ -154,47 +154,47 @@ struct PHPIDECommands: Commands {
                     Task { await workspace.jumpToDefinition(from: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("j", modifiers: [.control, .command])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Jump to Implementation") {
                     guard let document = workspace.activeDocument else { return }
                     Task { await workspace.jumpToImplementation(from: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("j", modifiers: [.option, .command])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Jump to Type Definition") {
                     guard let document = workspace.activeDocument else { return }
                     Task { await workspace.jumpToTypeDefinition(from: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("j", modifiers: [.control, .option, .command])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Find References") {
                     guard let document = workspace.activeDocument else { return }
                     Task { await workspace.findReferences(in: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Call Hierarchy") {
                     guard let document = workspace.activeDocument else { return }
                     Task { await workspace.showCallHierarchy(in: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("h", modifiers: [.control, .option])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Go Back") { workspace.goBack() }
                     .keyboardShortcut(.leftArrow, modifiers: [.control, .command])
                     .disabled(!workspace.canGoBack)
                 Divider()
                 Button("Fold") { workspace.requestFold(.fold) }
                     .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Button("Unfold") { workspace.requestFold(.unfold) }
                     .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Button("Fold All") { workspace.requestFold(.foldAll) }
                     .keyboardShortcut(.leftArrow, modifiers: [.shift, .option, .command])
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Button("Unfold All") { workspace.requestFold(.unfoldAll) }
                     .keyboardShortcut(.rightArrow, modifiers: [.shift, .option, .command])
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Divider()
                 Button("Next Tab") { workspace.selectAdjacentTab(1) }
                     .keyboardShortcut("]", modifiers: [.command, .shift])
@@ -207,10 +207,10 @@ struct PHPIDECommands: Commands {
                     Task { await workspace.promptRename(in: document, at: document.caretOffset) }
                 }
                 .keyboardShortcut("e", modifiers: [.control, .command])
-                .disabled(!workspace.isGoFile)
+                .disabled(!workspace.isPHPFile)
                 Button("Quick Fix…") { workspace.requestQuickFix() }
                     .keyboardShortcut(.return, modifiers: .option)
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
             }
             CommandMenu("Debug") {
                 Button("Start Debugging") { workspace.startDebugging() }
@@ -236,7 +236,7 @@ struct PHPIDECommands: Commands {
                 Divider()
                 Button("Toggle Breakpoint") { workspace.toggleBreakpointAtCaret() }
                     .keyboardShortcut("\\", modifiers: .command)
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Button("Remove All Breakpoints") { workspace.clearBreakpoints() }
                     .disabled(workspace.breakpoints.isEmpty)
             }
@@ -288,10 +288,10 @@ struct PHPIDECommands: Commands {
                 Divider()
                 Button("Format Document") { Task { await workspace.formatActiveDocument() } }
                     .keyboardShortcut("f", modifiers: [.option, .shift])
-                    .disabled(!workspace.isGoFile)
+                    .disabled(!workspace.isPHPFile)
                 Toggle("Format on Save", isOn: $formatOnSave)
                 Divider()
-                Button("Restart gopls") { Task { await workspace.restartLanguageServer() } }
+                Button("Restart Language Server") { Task { await workspace.restartLanguageServer() } }
             }
             }
 }

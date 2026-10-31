@@ -111,7 +111,7 @@ final class Document: Identifiable {
     private(set) var caretPosition = TextPosition(line: 0, character: 0)
 
     var name: String { url.lastPathComponent }
-    var isGo: Bool { url.pathExtension == "go" }
+    var isPHP: Bool { PHPLanguageServer.isPHPFile(url) }
 
     init(url: URL, text: String, isReadOnly: Bool) {
         self.url = url
@@ -136,7 +136,7 @@ enum FileOperationError: LocalizedError {
     }
 }
 
-/// All state for one project folder: open documents, gopls, and go commands.
+/// All state for one project folder: open documents, the PHP language server, and php commands.
 @MainActor
 @Observable
 final class Workspace {
@@ -155,7 +155,7 @@ final class Workspace {
         current = workspace
     }
 
-    /// Releases a closing window's resources: gopls, Delve, the file watcher, running commands.
+    /// Releases a closing window's resources: the language server, the debugger, the file watcher, running commands.
     func shutdown() async {
         Self.registry.remove(self)
         if Self.current === self { Self.current = Self.allOpen.last }
@@ -174,8 +174,12 @@ final class Workspace {
         didSet { if activeDocument !== oldValue { saveSession() } }
     }
     private(set) var diagnostics: [String: [Diagnostic]] = [:]  // keyed by normalized path
-    private(set) var lspStatus = "gopls: not started"
-    /// Bumped each time gopls becomes ready, so editors can (re)request hints etc.
+    private(set) var lspStatus = "Language server: not started"
+    /// Which server is running (intelephense / phpactor), for status messages.
+    private(set) var lspName = "Language server"
+    /// Intelephense is (re)indexing the workspace: cross-file results are incomplete until it ends.
+    private(set) var isIndexing = false
+    /// Bumped each time the language server becomes ready, so editors can (re)request hints etc.
     private(set) var languageServerEpoch = 0
     private(set) var output = ""
     private(set) var isRunning = false
@@ -291,7 +295,7 @@ final class Workspace {
     @ObservationIgnored private var watcher: DirectoryWatcher?
 
     var currentFile: URL? { activeDocument?.url }
-    var isGoFile: Bool { activeDocument?.isGo ?? false }
+    var isPHPFile: Bool { activeDocument?.isPHP ?? false }
     var canGoBack: Bool { !backStack.isEmpty }
     var dirtyDocuments: [Document] { documents.filter(\.isDirty) }
 
@@ -354,7 +358,7 @@ final class Workspace {
         }
         for document in documents { sendDidClose(document) }
         await stopLanguageServer()
-        // Use the real path (e.g. /private/tmp, not /tmp) so it matches what gopls reports.
+        // Use the real path (e.g. /private/tmp, not /tmp) so it matches what the language server reports.
         let url = url.canonicalFileURL
         rootURL = url
         fileTree = FileNode.loadTree(at: url)
@@ -418,7 +422,7 @@ final class Workspace {
 
     @ObservationIgnored private var restoringSession = false
 
-    /// Reopens the tabs open last time in this folder (else main.go or the first Go file).
+    /// Reopens the tabs open last time in this folder (else index.php / main.php or the first PHP file).
     private func restoreSession(in folder: URL) {
         let saved = SessionStore.session(for: folder)
         let files = (saved?.openFiles ?? []).map { URL(fileURLWithPath: $0) }
@@ -597,10 +601,7 @@ final class Workspace {
 
     private func notifyWatchedFiles(_ paths: [String]) {
         guard lspReady else { return }
-        let goFiles = paths.filter {
-            $0.hasSuffix(".go") || $0.hasSuffix("/go.mod") || $0.hasSuffix("/go.sum") || $0.hasSuffix("/go.work")
-        }
-        let changes: [JSONValue] = goFiles.map { path in
+        let changes: [JSONValue] = paths.filter(PHPLanguageServer.isWatched(path:)).map { path in
             let exists = FileManager.default.fileExists(atPath: path)
             return ["uri": .string(URL(fileURLWithPath: path).absoluteString), "type": .int(exists ? 2 : 3)]
         }
@@ -613,7 +614,7 @@ final class Workspace {
     @discardableResult
     func createFile(named name: String, in directory: URL) throws -> URL {
         let url = try newItemURL(named: name, in: directory)
-        let contents = url.pathExtension == "go" ? "package \(Self.packageName(for: directory))\n" : ""
+        let contents = PHPLanguageServer.isPHPFile(url) ? "<?php\n\ndeclare(strict_types=1);\n\n" : ""
         try contents.write(to: url, atomically: true, encoding: .utf8)
         reloadTree()
         openFile(url)
@@ -672,20 +673,6 @@ final class Workspace {
         for path in diagnostics.keys where path == key || path.hasPrefix(key + "/") {
             diagnostics.removeValue(forKey: path)
         }
-    }
-
-    /// The package clause of a sibling .go file, else a name derived from the folder.
-    static func packageName(for directory: URL) -> String {
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        for file in files where file.pathExtension == "go" && !file.lastPathComponent.hasSuffix("_test.go") {
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n") where line.hasPrefix("package ") {
-                return String(line.dropFirst("package ".count)).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        let name = directory.lastPathComponent.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
-        guard let first = name.first, !first.isNumber else { return "main" }
-        return name
     }
 
     // MARK: - Documents
@@ -802,9 +789,9 @@ final class Workspace {
 
     // MARK: - Formatting
 
-    /// Organizes imports, then formats with gopls (gofmt).
+    /// Organizes imports (if the server can), then formats with the language server (PSR-12 style).
     func format(_ document: Document) async {
-        guard lspReady, document.isGo, !document.isReadOnly, let lsp else { return }
+        guard lspReady, document.isPHP, !document.isReadOnly, let lsp else { return }
         let uri = JSONValue.string(document.url.absoluteString)
 
         var version = document.version
@@ -822,7 +809,7 @@ final class Workspace {
         version = document.version
         guard let result = try? await lsp.request("textDocument/formatting", params: [
             "textDocument": ["uri": uri],
-            "options": ["tabSize": 4, "insertSpaces": false],
+            "options": ["tabSize": 4, "insertSpaces": true],
         ]), document.version == version else { return }  // edited meanwhile: skip
         let edits = result.arrayValue?.compactMap(TextEdit.parse) ?? []
         replaceText(of: document, with: TextEdit.apply(edits, to: document.text))
@@ -860,7 +847,7 @@ final class Workspace {
             try document.text.write(to: document.url, atomically: true, encoding: .utf8)
             document.isDirty = false
             refreshGit()
-            if lspReady, document.isGo {
+            if lspReady, document.isPHP {
                 try? lsp?.notify("textDocument/didSave", params: [
                     "textDocument": ["uri": .string(document.url.absoluteString)],
                 ])
@@ -883,7 +870,7 @@ final class Workspace {
         let start = GoIdentifier.prefixStart(in: ns, before: offset)
         let prefix = ns.substring(with: NSRange(location: start, length: offset - start))
         let afterDot = start > 0 && ns.character(at: start - 1) == 0x2E
-        let snippets = document.isGo && !afterDot ? GoSnippets.completions(matching: prefix) : []
+        let snippets = document.isPHP && !afterDot ? GoSnippets.completions(matching: prefix) : []
         guard case let (lsp, params)? = positionRequest(document, at: offset),
               let result = try? await lsp.request("textDocument/completion", params: params)
         else { return snippets }
@@ -899,7 +886,7 @@ final class Workspace {
 
     /// Semantic tokens for the whole document (decoded with the server's legend).
     func semanticTokens(in document: Document) async -> [SemanticToken] {
-        guard lspReady, document.isGo, let lsp, let legend = semanticLegend,
+        guard lspReady, document.isPHP, let lsp, let legend = semanticLegend,
               let result = try? await lsp.request("textDocument/semanticTokens/full", params: [
                   "textDocument": ["uri": .string(document.url.absoluteString)],
               ])
@@ -908,7 +895,7 @@ final class Workspace {
     }
 
     func foldingRanges(in document: Document) async -> [FoldRegion] {
-        guard lspReady, document.isGo, let lsp,
+        guard lspReady, document.isPHP, let lsp,
               let result = try? await lsp.request("textDocument/foldingRange", params: [
                   "textDocument": ["uri": .string(document.url.absoluteString)],
               ])
@@ -918,7 +905,7 @@ final class Workspace {
 
     /// Inlay hints for the whole document.
     func inlayHints(in document: Document) async -> [InlayHint] {
-        guard lspReady, document.isGo, let lsp else { return [] }
+        guard lspReady, document.isPHP, let lsp else { return [] }
         let lines = LineIndex(document.text).lineCount
         guard let result = try? await lsp.request("textDocument/inlayHint", params: [
             "textDocument": ["uri": .string(document.url.absoluteString)],
@@ -1020,7 +1007,7 @@ final class Workspace {
     @discardableResult
     func renameSymbol(in document: Document, at offset: Int, to newName: String) async -> String? {
         guard case let (lsp, .object(params))? = positionRequest(document, at: offset) else {
-            return "gopls is not ready"
+            return "\(lspName) is not ready"
         }
         var request = params
         request["newName"] = .string(newName)
@@ -1031,7 +1018,7 @@ final class Workspace {
         } catch {
             return error.localizedDescription
         }
-        // Edits are relative to what gopls saw; bail out if a buffer changed meanwhile.
+        // Edits are relative to what the server saw; bail out if a buffer changed meanwhile.
         guard documents.allSatisfy({ versions[$0.id] == nil || versions[$0.id] == $0.version }) else {
             return "The file changed while renaming; try again."
         }
@@ -1072,7 +1059,7 @@ final class Workspace {
         isQuickOpenVisible = false
     }
 
-    /// Files now (fuzzy, file name weighted), then gopls workspace symbols merged in.
+    /// Files now (fuzzy, file name weighted), then the server's workspace symbols merged in.
     func updateQuickOpen() {
         quickOpenTask?.cancel()
         guard let rootURL else { return }
@@ -1130,13 +1117,13 @@ final class Workspace {
 
     /// Re-reads the active document's symbols (debounced by the caller).
     func refreshOutline() async {
-        guard let document = activeDocument, document.isGo, lspReady, let lsp,
+        guard let document = activeDocument, document.isPHP, lspReady, let lsp,
               let result = try? await lsp.request("textDocument/documentSymbol", params: [
                   "textDocument": ["uri": .string(document.url.absoluteString)],
               ]),
               document === activeDocument
         else {
-            if activeDocument?.isGo != true { outline = [] }
+            if activeDocument?.isPHP != true { outline = [] }
             return
         }
         outline = SymbolNode.parseAll(result)
@@ -1155,7 +1142,7 @@ final class Workspace {
 
     /// Quick fixes, refactorings and source actions at the caret (or selection).
     func codeActions(in document: Document, at offset: Int, length: Int = 0) async -> [CodeAction] {
-        guard lspReady, document.isGo, let lsp else { return [] }
+        guard lspReady, document.isPHP, let lsp else { return [] }
         let index = LineIndex(document.text)
         let caret = index.position(of: offset)
         let related = diagnostics(for: document).filter { $0.contains(caret) || $0.start.line == caret.line }
@@ -1171,7 +1158,7 @@ final class Workspace {
     }
 
     /// Runs a code action: resolves it if needed, applies its edit, then runs its command
-    /// (gopls may answer with workspace/applyEdit or window/showDocument).
+    /// (the server may answer with workspace/applyEdit or window/showDocument).
     func perform(_ action: CodeAction) async {
         guard let lsp else { return }
         var action = action
@@ -1192,13 +1179,12 @@ final class Workspace {
         }
     }
 
-    /// Requests gopls sends to us.
+    /// Requests the language server sends to us.
     private func handleServerRequest(method: String, params: JSONValue) -> JSONValue? {
         switch method {
         case "workspace/configuration":
-            // Same settings as initializationOptions, so gopls keeps hints enabled.
-            let items = params["items"]?.arrayValue ?? []
-            return .array(items.map { $0["section"]?.stringValue == "gopls" ? GoplsSettings.default : .null })
+            // null = the server's defaults for every section.
+            return .array((params["items"]?.arrayValue ?? []).map { _ in .null })
         case "workspace/applyEdit":
             apply(WorkspaceEdit.parse(params["edit"] ?? .null))
             return ["applied": true]
@@ -1440,7 +1426,7 @@ final class Workspace {
     }
 
     private func positionRequest(_ document: Document, at offset: Int) -> (LSPClient, JSONValue)? {
-        guard lspReady, document.isGo, let lsp else { return nil }
+        guard lspReady, document.isPHP, let lsp else { return nil }
         let position = LineIndex(document.text).position(of: offset)
         return (lsp, ["textDocument": ["uri": .string(document.url.absoluteString)], "position": position.json])
     }
@@ -1454,7 +1440,7 @@ final class Workspace {
         }
     }
 
-    // MARK: - gopls
+    // MARK: - Language server (Intelephense / Phpactor)
 
     func restartLanguageServer() async {
         guard let rootURL else { return }
@@ -1463,10 +1449,11 @@ final class Workspace {
     }
 
     private func startLanguageServer(root: URL) async {
-        guard let gopls = ToolLocator.find("gopls") else {
-            lspStatus = "gopls not found — go install golang.org/x/tools/gopls@latest"
+        guard let server = PHPLanguageServer.locate() else {
+            lspStatus = "No PHP language server — \(PHPLanguageServer.installHint)"
             return
         }
+        lspName = server.name
         let client = LSPClient()
         client.onNotification = { method, params in
             Task { @MainActor in self.handleNotification(client, method: method, params: params) }
@@ -1479,25 +1466,26 @@ final class Workspace {
                 guard self.lsp === client else { return }
                 self.lsp = nil
                 self.lspReady = false
-                self.lspStatus = "gopls exited (status \(status))"
+                self.lspStatus = "\(server.name) exited (status \(status))"
             }
         }
 
         do {
-            try client.start(executable: gopls, environment: ToolLocator.environment(), currentDirectory: root)
+            try client.start(executable: server.executable, arguments: server.arguments, environment: ToolLocator.environment(), currentDirectory: root)
             lsp = client
-            lspStatus = "gopls: starting…"
-            let initialized = try await client.request("initialize", params: Self.initializeParams(root: root))
+            lspStatus = "\(server.name): starting…"
+            let initialized = try await client.request("initialize", params: Self.initializeParams(root: root, server: server.kind))
             guard lsp === client else { return }  // folder changed while initializing
             semanticLegend = SemanticTokenLegend(initializeResult: initialized)
             try client.notify("initialized", params: [:])
             lspReady = true
-            lspStatus = "gopls: ready"
+            isIndexing = server.kind == .intelephense  // it indexes on start; `indexingEnded` clears this
+            lspStatus = isIndexing ? "\(server.name): indexing…" : "\(server.name): ready"
             languageServerEpoch += 1
             documents.forEach(sendDidOpen)
         } catch {
             if lsp === client { lsp = nil }
-            lspStatus = "gopls failed: \(error.localizedDescription)"
+            lspStatus = "\(server.name) failed: \(error.localizedDescription)"
         }
     }
 
@@ -1505,10 +1493,11 @@ final class Workspace {
         guard let client = lsp else { return }
         lsp = nil
         lspReady = false
+        isIndexing = false
         client.onNotification = nil
         client.onExit = nil
         client.onRequest = nil
-        lspStatus = "gopls: stopped"
+        lspStatus = "\(lspName): stopped"
         await client.shutdown()
     }
 
@@ -1523,19 +1512,26 @@ final class Workspace {
             } else {
                 diagnostics[key] = published.diagnostics
             }
+        case "indexingStarted":
+            isIndexing = true
+            lspStatus = "\(lspName): indexing…"
+        case "indexingEnded":
+            isIndexing = false
+            lspStatus = "\(lspName): ready"
+            languageServerEpoch += 1  // re-request hints, symbols, … now that the index is complete
         case "window/showMessage":
-            if let message = params["message"]?.stringValue { lspStatus = "gopls: \(message)" }
+            if let message = params["message"]?.stringValue { lspStatus = "\(lspName): \(message)" }
         default:
             break
         }
     }
 
     private func sendDidOpen(_ document: Document) {
-        guard lspReady, document.isGo else { return }
+        guard lspReady, document.isPHP else { return }
         try? lsp?.notify("textDocument/didOpen", params: [
             "textDocument": [
                 "uri": .string(document.url.absoluteString),
-                "languageId": "go",
+                "languageId": "php",
                 "version": .int(document.version),
                 "text": .string(document.text),
             ],
@@ -1543,7 +1539,7 @@ final class Workspace {
     }
 
     private func sendDidChange(_ document: Document) {
-        guard lspReady, document.isGo else { return }
+        guard lspReady, document.isPHP else { return }
         try? lsp?.notify("textDocument/didChange", params: [
             "textDocument": ["uri": .string(document.url.absoluteString), "version": .int(document.version)],
             "contentChanges": [["text": .string(document.text)]],
@@ -1551,13 +1547,13 @@ final class Workspace {
     }
 
     private func sendDidClose(_ document: Document) {
-        guard lspReady, document.isGo else { return }
+        guard lspReady, document.isPHP else { return }
         try? lsp?.notify("textDocument/didClose", params: [
             "textDocument": ["uri": .string(document.url.absoluteString)],
         ])
     }
 
-    private static func initializeParams(root: URL) -> JSONValue {
+    private static func initializeParams(root: URL, server: LanguageServerCommand.Kind) -> JSONValue {
         let textDocument: JSONValue = [
             "synchronization": ["didSave": true, "dynamicRegistration": false],
             "publishDiagnostics": ["relatedInformation": false],
@@ -1609,7 +1605,8 @@ final class Workspace {
             "processId": .int(Int(ProcessInfo.processInfo.processIdentifier)),
             "clientInfo": ["name": "PHPIDE", "version": "0.1.0"],
             "rootUri": .string(root.absoluteString),
-            "initializationOptions": GoplsSettings.default,
+            "initializationOptions": PHPLanguageServer.initializationOptions(
+                for: server, licenceKey: UserDefaults.standard.string(forKey: PHPLanguageServer.licenceKeyDefaultsKey)),
             "workspaceFolders": [["uri": .string(root.absoluteString), "name": .string(root.lastPathComponent)]],
             "capabilities": [
                 "textDocument": textDocument,
@@ -1840,7 +1837,7 @@ final class Workspace {
     }
 
     func toggleBreakpointAtCaret() {
-        guard let document = activeDocument, document.isGo else { return }
+        guard let document = activeDocument, document.isPHP else { return }
         toggleBreakpoint(in: document, line: LineIndex(document.text).position(of: document.caretOffset).line)
     }
 
@@ -1861,7 +1858,7 @@ final class Workspace {
             debug(test: name, in: document.url.deletingLastPathComponent())
         } else if let config = selectedRunConfiguration {
             debug(configuration: config)
-        } else if let document = activeDocument, document.isGo, !document.name.hasSuffix("_test.go") {
+        } else if let document = activeDocument, document.isPHP, !document.name.hasSuffix("_test.go") {
             debug(package: document.url.deletingLastPathComponent())
         } else {
             debug(package: rootURL)
@@ -2009,7 +2006,8 @@ final class Workspace {
 
     private static func defaultFile(in nodes: [FileNode]) -> URL? {
         let files = nodes.filter { !$0.isDirectory }
-        return (files.first { $0.name == "main.go" } ?? files.first { $0.url.pathExtension == "go" })?.url
+        return (files.first { $0.name == "index.php" } ?? files.first { $0.name == "main.php" }
+            ?? files.first { PHPLanguageServer.isPHPFile($0.url) })?.url
     }
 }
 
