@@ -1,7 +1,7 @@
 import PHPIDECore
 import SwiftUI
 
-/// Results of the last `go test -json` run: test list on the left, selected output on the right.
+/// Results of the last PHPUnit / Pest run: test list on the left, selected output on the right.
 struct TestsPanel: View {
     @Environment(Workspace.self) private var workspace
 
@@ -10,11 +10,11 @@ struct TestsPanel: View {
         let report = workspace.testReport
         if report.tests.isEmpty && !workspace.isRunning {
             VStack(spacing: 8) {
-                Text(report.buildOutput.isEmpty ? "No test results yet." : "Build failed — see Output.")
+                Text(report.buildOutput.isEmpty ? "No test results yet." : "No tests ran — see Output.")
                     .foregroundStyle(.secondary)
                 HStack {
                     Button("Run All Tests (⌘U)") { workspace.runTests(.all) }
-                    Button("Run Package (⌃⌘U)") { workspace.runActivePackageTests() }
+                    Button("Run File (⌃⌘U)") { workspace.runActiveFileTests() }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -42,13 +42,12 @@ struct TestsPanel: View {
                             TestRow(test: test)
                                 .tag(test.id)
                                 .contextMenu {
-                                    if let name = test.name {
-                                        Button("Go to Test") { workspace.revealTest(named: name) }
+                                    Button("Go to Test") { workspace.revealTest(test) }
+                                    if let file = test.file {
+                                        Button("Run Again") { workspace.runTests(.test(test.methodName, in: URL(fileURLWithPath: file))) }
                                     }
                                 }
-                                .onTapGesture(count: 2) {
-                                    if let name = test.name { workspace.revealTest(named: name) }
-                                }
+                                .onTapGesture(count: 2) { workspace.revealTest(test) }
                         }
                     }
                     .listStyle(.plain)
@@ -60,16 +59,15 @@ struct TestsPanel: View {
         }
     }
 
-    /// The selected test's output followed by its subtests' (where failures are usually logged).
-    private func combinedOutput(_ report: GoTestReport) -> String? {
+    /// The selected test's output followed by its data sets' (where failures are logged).
+    private func combinedOutput(_ report: TestReport) -> String? {
         guard let selected = report.tests.first(where: { $0.id == workspace.selectedTestID }) else { return nil }
-        guard let name = selected.name else { return selected.output }
         return report.tests
-            .filter { $0.package == selected.package && ($0.name == name || $0.name?.hasPrefix(name + "/") == true) }
+            .filter { $0.className == selected.className && ($0.name == selected.name || $0.name.hasPrefix(selected.name + "/")) }
             .map(\.output).joined()
     }
 
-    private func summary(_ report: GoTestReport) -> some View {
+    private func summary(_ report: TestReport) -> some View {
         HStack(spacing: 10) {
             Text(workspace.testRunTitle).fontWeight(.semibold).lineLimit(1)
             Spacer()
@@ -93,7 +91,7 @@ struct TestsPanel: View {
 }
 
 private struct TestRow: View {
-    let test: GoTestResult
+    let test: TestResult
 
     var body: some View {
         HStack(spacing: 6) {
@@ -105,12 +103,12 @@ private struct TestRow: View {
             }
         }
         .padding(.leading, CGFloat(test.depth) * 14)
-        .help(test.package + " " + (test.name ?? ""))
+        .help(test.className + "::" + test.name)
     }
 }
 
 struct TestStatusIcon: View {
-    let status: GoTestResult.Status
+    let status: TestResult.Status
 
     var body: some View {
         switch status {
@@ -122,7 +120,7 @@ struct TestStatusIcon: View {
     }
 }
 
-/// A test's output; `file.go:12` references are clickable.
+/// A test's output; `file.php:12` references are clickable.
 private struct TestOutput: View {
     @Environment(Workspace.self) private var workspace
     let output: String?

@@ -49,7 +49,9 @@ final class CallNode: Identifiable {
 
 enum TestScope: Equatable {
     case all
-    case package(URL)
+    /// One test file.
+    case file(URL)
+    /// One test method (all its data sets) in a file.
     case test(String, in: URL)
 }
 
@@ -228,12 +230,12 @@ final class Workspace {
     private(set) var outline: [SymbolNode] = []
 
     // Tests
-    private(set) var testReport = GoTestReport()
+    private(set) var testReport = TestReport()
     private(set) var testRunTitle = ""
     var selectedTestID: String?
-    /// Latest status per test name, for gutter markers.
-    var testStatuses: [String: GoTestResult.Status] {
-        Dictionary(testReport.tests.compactMap { t in t.name.map { ($0, t.status) } }, uniquingKeysWith: { $1 })
+    /// Latest status per test method name, for gutter markers.
+    var testStatuses: [String: TestResult.Status] {
+        Dictionary(testReport.tests.filter { $0.depth == 0 }.map { ($0.name, $0.status) }, uniquingKeysWith: { $1 })
     }
 
     // Debugging
@@ -1253,7 +1255,7 @@ final class Workspace {
         notifyWatchedFiles(written)  // don't wait for FSEvents
         if !created.isEmpty {
             reloadTree()
-            created.forEach { openFile($0) }  // e.g. a generated _test.go
+            created.forEach { openFile($0) }  // e.g. a generated test file
         }
         return changed
     }
@@ -1656,34 +1658,37 @@ final class Workspace {
 
     func runTests(_ scope: TestScope, coverage measure: Bool = false) {
         guard let rootURL, !isRunning else { return }
-        guard let go = ToolLocator.find("go") else {
-            output = "go not found. Install Go from https://go.dev/dl/\n"
+        guard let runner = PHPTestRunner.locate(in: rootURL) else {
+            output = "No test runner found. Add PHPUnit to the project:\n  composer require --dev phpunit/phpunit\n"
             bottomTab = .output
             return
         }
         saveAll()
-        var arguments = ["test", "-json"]
-        let profile = FileManager.default.temporaryDirectory.appendingPathComponent("goide-cover-\(UUID().uuidString).out")
-        if measure { arguments.append("-coverprofile=" + profile.path) }
+        let arguments: [String]
         switch scope {
         case .all:
-            arguments.append("./...")
+            arguments = PHPTestRunner.arguments(root: rootURL)
             testRunTitle = "All tests"
-        case .package(let dir):
-            arguments.append(packagePattern(for: dir))
-            testRunTitle = "Package \(packagePattern(for: dir))"
-        case .test(let name, let dir):
-            arguments += ["-run", "^\(NSRegularExpression.escapedPattern(for: name))$", packagePattern(for: dir)]
+        case .file(let file):
+            arguments = PHPTestRunner.arguments(root: rootURL, file: displayPath(Self.key(for: file)))
+            testRunTitle = file.lastPathComponent
+        case .test(let name, let file):
+            let text = documents.first { Self.key(for: $0.url) == Self.key(for: file) }?.text
+                ?? (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+            arguments = PHPTestRunner.arguments(root: rootURL, file: displayPath(Self.key(for: file)),
+                                                className: PHPTestFinder.className(in: text), method: name)
             testRunTitle = name
         }
-        testReport = GoTestReport()
+        testReport = TestReport()
         selectedTestID = nil
-        output = "$ go \(arguments.joined(separator: " "))\n"
+        let shown = arguments.map { $0.contains(" ") || $0.contains("(") ? "'\($0)'" : $0 }.joined(separator: " ")
+        output = "$ \(displayPath(Self.key(for: runner))) \(shown)\n"
+        if measure { output += "(Coverage isn't wired up yet — ROADMAP 2.5. Running without it.)\n" }
         bottomTab = .tests
         isRunning = true
 
         let process = Process()
-        process.executableURL = go
+        process.executableURL = runner
         process.arguments = arguments
         process.currentDirectoryURL = rootURL
         process.environment = ToolLocator.environment()
@@ -1704,11 +1709,12 @@ final class Workspace {
                 try? await Task.sleep(for: .milliseconds(80))  // let the last lines land
                 self.isRunning = false
                 self.runProcess = nil
-                if measure { self.loadCoverage(profile) }
+                self.testReport.finish()
                 let r = self.testReport
                 self.appendOutput("\n[\(r.passed) passed, \(r.failed) failed, \(r.skipped) skipped — exit \(status)]\n")
-                if r.tests.isEmpty, !r.buildOutput.isEmpty { self.bottomTab = .output }  // build failed
-                self.selectedTestID = self.selectedTestID ?? r.tests.first { $0.status == .failed }?.id
+                if r.tests.isEmpty { self.bottomTab = .output }  // didn't get to run tests: show why
+                self.selectedTestID = self.selectedTestID ?? r.tests.first { $0.status == .failed && $0.depth == 1 }?.id
+                    ?? r.tests.first { $0.status == .failed }?.id
             }
         }
         do {
@@ -1716,18 +1722,8 @@ final class Workspace {
             runProcess = process
         } catch {
             isRunning = false
-            appendOutput("Failed to start go: \(error.localizedDescription)\n")
+            appendOutput("Failed to start \(runner.lastPathComponent): \(error.localizedDescription)\n")
         }
-    }
-
-    private func loadCoverage(_ profile: URL) {
-        defer { try? FileManager.default.removeItem(at: profile) }
-        guard let rootURL, let text = try? String(contentsOf: profile, encoding: .utf8),
-              let goMod = try? String(contentsOf: rootURL.appendingPathComponent("go.mod"), encoding: .utf8),
-              let module = CoverageReport.modulePath(goMod: goMod)
-        else { return }
-        coverage = CoverageReport.parse(text, modulePath: module, root: Self.key(for: rootURL))
-        showCoverage = true
     }
 
     func clearCoverage() {
@@ -1736,29 +1732,22 @@ final class Workspace {
 
     private func consumeTestLine(_ line: String) {
         testReport.consume(line: line)
-        if !line.hasPrefix("{") { appendOutput(line + "\n") }
-        else if let data = line.data(using: .utf8),
-                let event = try? JSONDecoder().decode(GoTestEvent.self, from: data),
-                let text = event.output, event.action == "output" || event.action == "build-output" {
-            appendOutput(text)
-        }
+        if !line.contains("##teamcity[") { appendOutput(line + "\n") }
     }
 
-    /// Runs the test function around the caret, else the active file's package.
+    /// Runs the test method around the caret, else the active test file, else everything.
     func runTestAtCaret() {
-        guard let document = activeDocument else { return runTests(.all) }
-        let dir = document.url.deletingLastPathComponent()
-        if document.name.hasSuffix("_test.go"),
-           let name = GoTestFinder.enclosingTest(in: document.text, at: document.caretOffset) {
-            runTests(.test(name, in: dir))
+        guard let document = activeDocument, PHPTestFinder.isTestFile(document.name) else { return runTests(.all) }
+        if let name = PHPTestFinder.enclosingTest(in: document.text, at: document.caretOffset) {
+            runTests(.test(name, in: document.url))
         } else {
-            runTests(.package(dir))
+            runTests(.file(document.url))
         }
     }
 
-    func runActivePackageTests() {
-        guard let document = activeDocument else { return runTests(.all) }
-        runTests(.package(document.url.deletingLastPathComponent()))
+    func runActiveFileTests() {
+        guard let document = activeDocument, PHPTestFinder.isTestFile(document.name) else { return runTests(.all) }
+        runTests(.file(document.url))
     }
 
     private func packagePattern(for dir: URL) -> String {
@@ -1766,16 +1755,17 @@ final class Workspace {
         return relative == Self.key(for: dir) || relative.isEmpty ? "." : "./" + relative
     }
 
-    /// Opens a test function's declaration (searches the project's _test.go files).
-    func revealTest(named name: String) {
+    /// Opens a test method's declaration: in its file when known, else searched in the project's *Test.php files.
+    func revealTest(_ test: TestResult) {
         guard let rootURL else { return }
-        let base = String(name.split(separator: "/").first ?? Substring(name))
-        for path in ProjectSearch.files(under: rootURL) where path.hasSuffix("_test.go") {
+        let candidates = test.file.map { [$0] }
+            ?? ProjectSearch.files(under: rootURL).filter { PHPTestFinder.isTestFile(($0 as NSString).lastPathComponent) }
+        for path in candidates {
             let key = Self.key(for: URL(fileURLWithPath: path))
             let text = documents.first { Self.key(for: $0.url) == key }?.text
                 ?? (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-            if let found = GoTestFinder.testFunctions(in: text).first(where: { $0.name == base }) {
-                navigate(to: URL(fileURLWithPath: path), position: TextPosition(line: found.line, character: 5))
+            if let found = PHPTestFinder.testMethods(in: text).first(where: { $0.name == test.methodName }) {
+                navigate(to: URL(fileURLWithPath: path), position: TextPosition(line: found.line, character: 0))
                 return
             }
         }
@@ -1874,15 +1864,15 @@ final class Workspace {
         }
     }
 
-    /// Debugs the test at the caret (in a _test.go file), else the active file's package (or the root).
+    /// Debugs the test at the caret (in a *Test.php file), else the selected configuration (or the root).
     func startDebugging() {
         guard let rootURL else { return }
-        if let document = activeDocument, document.name.hasSuffix("_test.go"),
-           let name = GoTestFinder.enclosingTest(in: document.text, at: document.caretOffset) {
+        if let document = activeDocument, PHPTestFinder.isTestFile(document.name),
+           let name = PHPTestFinder.enclosingTest(in: document.text, at: document.caretOffset) {
             debug(test: name, in: document.url.deletingLastPathComponent())
         } else if let config = selectedRunConfiguration {
             debug(configuration: config)
-        } else if let document = activeDocument, document.isPHP, !document.name.hasSuffix("_test.go") {
+        } else if let document = activeDocument, document.isPHP, !PHPTestFinder.isTestFile(document.name) {
             debug(package: document.url.deletingLastPathComponent())
         } else {
             debug(package: rootURL)

@@ -28,7 +28,9 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.3b | ✅ Syntax check (⌘B) | `php -l` over every project PHP file; parse errors land in Problems (merged with LSP diagnostics) | 0.2h |
 | 1.3c | ✅ Static analysis | PHPStan (`vendor/bin/phpstan analyse --error-format=json`) or Psalm (`--output-format=json`) if installed → Problems | 0.3h |
 | 1.3d | ✅ Composer commands | PHP menu: composer install / update / dump-autoload / validate replace the go vet / generate / mod items | 0.1h |
-| 1.4 | ⬜ Tests | PHPUnit (`vendor/bin/phpunit --log-junit`) / Pest: gutter ▶ / ✓ / ✗ per `test*` method and `#[Test]`, run at cursor / file / all | 0.8h |
+| 1.4 | ✅ PHPUnit runner | `vendor/bin/phpunit --teamcity` (or Pest) streamed into the Tests panel: classes → methods → data sets, pass / fail / skip, failure messages, durations | 0.4h |
+| 1.4a | ✅ Test discovery & gutter | Find `test*` methods / `#[Test]` / `@test` in `*Test.php`; gutter ▶ / ✓ / ✗; run test at cursor (`--filter`), run file, run all | 0.3h |
+| 1.4b | ✅ Jump to test / failure | Click a test → its method; failure `file.php:12` → line; toolbar/menu wording (Test File, no "package") | 0.1h |
 | 1.5 | ⬜ Debugger (Xdebug) | Replace Delve with vscode-php-debug as the DAP adapter (download on first use, run with node); `pecl install xdebug` helper; launch script / listen for web requests; breakpoints, stack, variables | 1–1.5h |
 | 1.6 | ⬜ Run configurations | Script + args + env, built-in web server (`php -S localhost:8000 -t public`), Composer scripts from `composer.json` | 0.5h |
 | 1.7 | ⬜ Snippets & settings | PHP snippets (`fn`, `class`, `foreach`, `pubf`, `ctor`, …); php / node / intelephense / licence-key path overrides | 0.4h |

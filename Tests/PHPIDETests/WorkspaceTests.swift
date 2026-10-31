@@ -414,3 +414,43 @@ import PHPIDECore
         await workspace.shutdown()
     }
 }
+
+@MainActor
+@Suite struct WorkspacePHPUnitTests {
+    /// A Composer project with PHPUnit installed and a failing test; set PHPIDE_PHPUNIT_PROJECT to its folder.
+    nonisolated static let project = ProcessInfo.processInfo.environment["PHPIDE_PHPUNIT_PROJECT"]
+
+    private func run(_ workspace: Workspace, _ scope: TestScope) async throws {
+        workspace.runTests(scope)
+        for _ in 0..<300 where workspace.isRunning || !workspace.output.contains(" skipped — exit ") {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    @Test(.enabled(if: project != nil), .timeLimit(.minutes(1)))
+    func runsAllFileAndMethodScopes() async throws {
+        let dir = URL(fileURLWithPath: try #require(Self.project)).canonicalFileURL
+        let workspace = Workspace()
+        await workspace.openFolder(dir)
+
+        try await run(workspace, .all)
+        let report = workspace.testReport
+        #expect(report.passed >= 1 && report.failed >= 1)
+        #expect(workspace.selectedTestID != nil)  // first failure preselected
+        #expect(workspace.testStatuses["testGreet"] == .passed)
+
+        let greeter = dir.appendingPathComponent("tests/GreeterTest.php")
+        try await run(workspace, .file(greeter))
+        #expect(workspace.testReport.tests.map(\.name) == ["testGreet"])
+
+        try await run(workspace, .test("testAdd", in: dir.appendingPathComponent("tests/MoreTest.php")))
+        #expect(workspace.testReport.tests.map(\.name) == ["testAdd", "testAdd/same", "testAdd/diff"])
+        #expect(workspace.output.contains("--filter"))
+
+        let failing = try #require(workspace.testReport.tests.first { $0.name == "testAdd/diff" })
+        workspace.revealTest(failing)
+        #expect(workspace.activeDocument?.name == "MoreTest.php")
+        #expect(workspace.activeDocument?.revealTarget?.position.line == 12)
+        await workspace.shutdown()
+    }
+}

@@ -267,7 +267,7 @@ struct PHPIDECommands: Commands {
                     .disabled(workspace.rootURL == nil || workspace.isAnalyzing)
                 Button("Test All") { workspace.runTests(.all) }
                     .keyboardShortcut("u")
-                Button("Test Package") { workspace.runActivePackageTests() }
+                Button("Test File") { workspace.runActiveFileTests() }
                     .keyboardShortcut("u", modifiers: [.control, .command])
                 Button("Run Test at Cursor") { workspace.runTestAtCaret() }
                     .keyboardShortcut("u", modifiers: [.control, .option, .command])
