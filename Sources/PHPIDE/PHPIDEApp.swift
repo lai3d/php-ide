@@ -62,6 +62,12 @@ struct WorkspaceWindow: View {
 struct PHPIDEApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // A folder passed on the command line (IDE Toolbox, `open --args`) must not be treated as a
+        // document to open: with no saved window state, AppKit would then show no window at all.
+        UserDefaults.standard.register(defaults: ["NSTreatUnknownArgumentsAsOpen": "NO"])
+    }
+
     var body: some Scene {
         WindowGroup("PHPIDE", id: "workspace") {
             WorkspaceWindow()
