@@ -32,8 +32,8 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 1.4a | ✅ Test discovery & gutter | Find `test*` methods / `#[Test]` / `@test` in `*Test.php`; gutter ▶ / ✓ / ✗; run test at cursor (`--filter`), run file, run all | 0.3h |
 | 1.4b | ✅ Jump to test / failure | Click a test → its method; failure `file.php:12` → line; toolbar/menu wording (Test File, no "package") | 0.1h |
 | 1.5 | ✅ Xdebug setup | Detect Xdebug (`php -m`); "Install Xdebug" runs `pecl install xdebug` in Output; clear message when missing | 0.2h |
-| 1.5a | 🚧 DAP adapter | Download vscode-php-debug (VSIX from GitHub releases) into Application Support on first use; run it with `node` over stdio | 0.3h |
-| 1.5b | 🚧 Debug a script (⌥⌘R) | `launch` with program / cwd / args / env; breakpoints (incl. conditions), call stack, variables, step over / into / out, continue | 0.5h |
+| 1.5a | ✅ DAP adapter | Download vscode-php-debug (VSIX from GitHub releases) into Application Support on first use; run it with `node` over stdio | 0.3h |
+| 1.5b | ✅ Debug a script (⌥⌘R) | `launch` with program / cwd / args / env; breakpoints (incl. conditions), call stack, variables, step over / into / out, continue | 0.5h |
 | 1.5c | 🚧 Debug test at cursor | PHPUnit under Xdebug with `--filter` for the method at the caret | 0.2h |
 | 1.5d | 🚧 Listen for Xdebug | "Start Listening" (port 9003) to debug web requests / CLI runs started elsewhere | 0.2h |
 | 1.6 | ⬜ Run configurations | Script + args + env, built-in web server (`php -S localhost:8000 -t public`), Composer scripts from `composer.json` | 0.5h |
