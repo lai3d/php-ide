@@ -62,7 +62,7 @@ Toolchain on the dev Mac: `php` + `composer` from Homebrew, `intelephense` from 
 | 2.4a | ✅ Routes | `route:list --json` / `debug:router --format=json` in a table; double-click opens the controller method (PSR-4 lookup) | 0.4h |
 | 2.5 | ✅ Coverage | PHPUnit `--coverage-clover` with Xdebug/PCOV → gutter tints and per-file % | 0.5h |
 | 2.6 | ✅ Database settings | PHP ▸ Database (.env)…: Laravel `DB_*` / `DB_URL` and Symfony `DATABASE_URL` (+ `.env.local`), copy the connection URL, launch DBIDE | 0.3h |
-| 2.6a | ⬜ DBIDE hand-off | DBIDE has no way to receive a connection (no URL scheme / arguments). Needs a change in **database-ide**, e.g. `dbide://connect?url=…` creating a data source; then "Open DBIDE" opens the connection directly | 0.3h (+ DBIDE repo) |
+| 2.6a | ✅ DBIDE hand-off | "Open DBIDE" sends `dbide://connect?url=…&name=…` ([database-ide#1](https://github.com/lai3d/database-ide/pull/1)): DBIDE opens the matching saved data source and connects, or shows New Data Source filled in. DBIDE versions without the scheme fall back to launch + URL on the clipboard | 0.3h |
 
 **User must do manually** (duration outside Claude's control): Intelephense premium licence key (optional,
 for rename / code actions), Apple Developer Program enrollment + notarization if a signed build is wanted.

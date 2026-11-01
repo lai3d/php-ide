@@ -28,6 +28,19 @@ public struct DatabaseSettings: Sendable, Equatable {
         return "\(scheme)://\(auth.isEmpty ? "" : auth + "@")\(host)\(portPart)/\(database)"
     }
 
+    /// `dbide://connect?url=…&name=…`: DBIDE opens the matching saved data source, or a filled-in
+    /// New Data Source sheet (password included, so it can connect without asking).
+    public func dbideLink(name: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "dbide"
+        components.host = "connect"
+        components.queryItems = [URLQueryItem(name: "url", value: url(includingPassword: true)),
+                                 URLQueryItem(name: "name", value: name)]
+        // `+` would read as a space; `&`/`=` are already escaped inside values.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return components.url
+    }
+
     /// Reads `.env` then `.env.local` (later files override) in `root`.
     public static func fromEnvironmentFiles(in root: URL) -> DatabaseSettings? {
         var env: [String: String] = [:]

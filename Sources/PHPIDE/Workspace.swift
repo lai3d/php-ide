@@ -2139,6 +2139,15 @@ final class Workspace {
             flashStatus("DBIDE isn't installed — get it from IDE Toolbox")
             return
         }
+        // DBIDE builds with the `dbide://` scheme open the connection directly; older ones just launch,
+        // with the URL on the clipboard to paste into New Data Source.
+        if let settings = databaseSettings,
+           let link = settings.dbideLink(name: "\(rootURL?.lastPathComponent ?? "Project") (.env)"),
+           let handler = NSWorkspace.shared.urlForApplication(toOpen: link),
+           Bundle(url: handler)?.bundleIdentifier == Self.dbideBundleID {
+            NSWorkspace.shared.open(link)
+            return
+        }
         copyDatabaseURL(includingPassword: true)
         NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
     }

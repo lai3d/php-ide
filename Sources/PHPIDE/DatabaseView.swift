@@ -49,7 +49,7 @@ struct DatabaseSheet: View {
                 Spacer()
                 Button("Open DBIDE") { workspace.openDBIDE(); dismiss() }
                     .disabled(workspace.databaseSettings == nil || !workspace.isDBIDEInstalled)
-                    .help("Launches DBIDE with the connection URL on the clipboard")
+                    .help("Opens this connection in DBIDE (older DBIDE versions: launches it with the URL on the clipboard)")
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }

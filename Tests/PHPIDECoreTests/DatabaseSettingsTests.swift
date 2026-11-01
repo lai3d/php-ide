@@ -26,6 +26,16 @@ import Testing
         #expect(s.url(includingPassword: true) == "postgresql://shop:p%40ss%20%231@db.local:6543/Shop_dev")
     }
 
+    @Test func dbideLinkCarriesTheFullURL() throws {
+        let s = try #require(settings("DB_CONNECTION=mysql\nDB_DATABASE=shop\nDB_USERNAME=app\nDB_PASSWORD=a+b&c=d\n"))
+        let link = try #require(s.dbideLink(name: "shop (.env)"))
+        #expect(link.scheme == "dbide" && link.host == "connect")
+        let items = try #require(URLComponents(url: link, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(items.first { $0.name == "url" }?.value == s.url(includingPassword: true))
+        #expect(items.first { $0.name == "name" }?.value == "shop (.env)")
+        #expect(s.url(includingPassword: true) == "mysql://app:a+b&c=d@127.0.0.1:3306/shop")  // DBIDE splits user info at the last `@`
+    }
+
     @Test func laravelDefaultsAndSQLite() throws {
         let mysql = try #require(settings("DB_CONNECTION=mariadb\nDB_DATABASE=app # main db\n"))
         #expect(mysql.dialect == "mysql" && mysql.host == "127.0.0.1" && mysql.port == 3306 && mysql.database == "app")
